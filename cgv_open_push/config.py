@@ -1,6 +1,7 @@
 import os
 
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1533084611523907665/7lv3hD-P7Xnhob5heQWgT5kZrNdngzL1OXYUURLGN7eXB8rIoZVrBcJDf4vFmF0oN6_V")
+
 
 CO_CD = "A420"
 
