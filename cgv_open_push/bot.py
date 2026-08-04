@@ -68,7 +68,14 @@ def grades_from_flags(imax, dx4, screenx, general, premium):
     return [name for name, on in flags.items() if on]
 
 
-@tree.command(name="targets", description="현재 감시 중인 극장/등급 목록 조회", guild=GUILD)
+def describe_target(t):
+    movie_desc = t.get("movie") or "전체 영화"
+    date_desc = t.get("date") or "전체 날짜"
+    grade_desc = ", ".join(t["grades"]) if t["grades"] else "등급 무관"
+    return f"{movie_desc} / {date_desc} / {grade_desc}"
+
+
+@tree.command(name="targets", description="현재 감시 중인 극장/영화/날짜/등급 목록 조회", guild=GUILD)
 async def targets_cmd(interaction: discord.Interaction):
     targets = load_targets()
     if not targets:
@@ -76,7 +83,7 @@ async def targets_cmd(interaction: discord.Interaction):
         return
     lines = ["**현재 감시 대상**"]
     for t in targets:
-        lines.append(f"- {t['site_name']} ({t['site_no']}): {', '.join(t['grades'])}")
+        lines.append(f"- [{t['id']}] {t['site_name']} ({t['site_no']}) - {describe_target(t)}")
     await interaction.response.send_message("\n".join(lines))
 
 
@@ -99,6 +106,8 @@ async def search_cmd(interaction: discord.Interaction, query: str):
 @tree.command(name="add", description="감시 대상 추가", guild=GUILD)
 @app_commands.describe(
     theater="추가할 극장 이름 (검색 결과가 하나로 좁혀지는 이름이어야 함)",
+    movie="감시할 영화 제목 (부분 일치, 비우면 전체 영화)",
+    date="감시할 날짜 YYYYMMDD (비우면 전체 날짜)",
     imax="아이맥스",
     dx4="4DX",
     screenx="SCREENX",
@@ -108,19 +117,22 @@ async def search_cmd(interaction: discord.Interaction, query: str):
 async def add_cmd(
     interaction: discord.Interaction,
     theater: str,
+    movie: str = "",
+    date: str = "",
     imax: bool = False,
     dx4: bool = False,
     screenx: bool = False,
     general: bool = False,
     premium: bool = False,
 ):
-    grades = grades_from_flags(imax, dx4, screenx, general, premium)
-    if not grades:
+    if date and not (len(date) == 8 and date.isdigit()):
         await interaction.response.send_message(
-            "최소 하나 이상의 등급을 선택해야 합니다 (imax/dx4/screenx/general/premium).",
+            "date는 YYYYMMDD 형식(8자리 숫자)으로 입력해주세요.",
             ephemeral=True,
         )
         return
+
+    grades = grades_from_flags(imax, dx4, screenx, general, premium)
 
     await interaction.response.defer()
     try:
@@ -143,45 +155,52 @@ async def add_cmd(
         return
 
     site = matches[0]
-    changed, target = add_target(site["site_no"], site["site_name"], grades)
+    changed, target = add_target(site["site_no"], site["site_name"], grades, movie=movie, date=date)
     verb = "추가/변경됨" if changed else "변경 없음 (이미 동일하게 감시 중)"
     await interaction.followup.send(
-        f"**{target['site_name']}** ({target['site_no']}) - {', '.join(target['grades'])} [{verb}]"
+        f"**{target['site_name']}** ({target['site_no']}) - {describe_target(target)} [{verb}]"
     )
 
 
 async def remove_autocomplete(interaction: discord.Interaction, current: str):
     targets = load_targets()
-    return [
-        app_commands.Choice(name=f"{t['site_name']} ({t['site_no']})", value=t["site_no"])
-        for t in targets
-        if current in t["site_name"]
-    ][:25]
+    choices = []
+    for t in targets:
+        if current in t["site_name"] or current in (t.get("movie") or "") or current in t["id"]:
+            choices.append(
+                app_commands.Choice(
+                    name=f"{t['site_name']} - {describe_target(t)} [{t['id']}]",
+                    value=t["id"],
+                )
+            )
+    return choices[:25]
 
 
 @tree.command(name="remove", description="감시 대상 제거", guild=GUILD)
-@app_commands.describe(theater="제거할 극장 이름 (자동완성에서 선택 권장)")
-@app_commands.autocomplete(theater=remove_autocomplete)
-async def remove_cmd(interaction: discord.Interaction, theater: str):
+@app_commands.describe(target="제거할 감시 대상 (자동완성에서 선택 권장)")
+@app_commands.autocomplete(target=remove_autocomplete)
+async def remove_cmd(interaction: discord.Interaction, target: str):
     targets = load_targets()
-    matches = [t for t in targets if t["site_no"] == theater or t["site_name"] == theater]
+    matches = [t for t in targets if t["id"] == target]
     if not matches:
-        matches = [t for t in targets if theater in t["site_name"]]
+        matches = [
+            t for t in targets if target in t["site_name"] or target in (t.get("movie") or "")
+        ]
 
     if not matches:
         await interaction.response.send_message(
-            f"'{theater}'에 해당하는 감시 대상을 찾지 못했습니다.", ephemeral=True
+            f"'{target}'에 해당하는 감시 대상을 찾지 못했습니다.", ephemeral=True
         )
         return
     if len(matches) > 1:
-        lines = [f"'{theater}' 검색 결과가 여러 개입니다:"]
-        lines += [f"- {t['site_name']} ({t['site_no']})" for t in matches]
+        lines = [f"'{target}' 검색 결과가 여러 개입니다. 자동완성에서 선택해주세요:"]
+        lines += [f"- [{t['id']}] {t['site_name']} - {describe_target(t)}" for t in matches]
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
         return
 
-    target = matches[0]
-    remove_target(target["site_no"])
-    await interaction.response.send_message(f"제거했습니다: {target['site_name']} ({target['site_no']})")
+    matched = matches[0]
+    remove_target(matched["id"])
+    await interaction.response.send_message(f"제거했습니다: {matched['site_name']} ({matched['id']}) - {describe_target(matched)}")
 
 
 @client.event

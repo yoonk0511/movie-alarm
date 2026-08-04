@@ -15,11 +15,16 @@ VALID_GRADES = ["아이맥스", "4DX", "SCREENX", "일반", "프리미엄관"]
 
 # targets.json이 없을 때 최초 1회 생성에 쓰이는 기본 감시 대상.
 # site_no는 CGV 극장 코드, grades는 tcscnsGradNm 값.
+# movie는 prodNm 부분일치 필터, date는 scnYmd(YYYYMMDD) 정확히 일치 필터.
+# 둘 다 빈 문자열이면 무관(전체) 취급. id는 같은 site_no에 여러 감시를 걸 수 있게 하는 고유 키.
 # 이후 감시 대상 변경은 봇의 /add, /remove 커맨드 또는 targets.json 직접 수정으로 한다.
 DEFAULT_TARGETS = [
     {
+        "id": "0013",
         "site_no": "0013",
         "site_name": "용산아이파크몰",
+        "movie": "",
+        "date": "",
         "grades": ["아이맥스", "4DX", "SCREENX"],
     },
 ]
