@@ -1,5 +1,6 @@
 from typing import Any
 
+from playwright.async_api import APIRequestContext as AsyncAPIRequestContext
 from playwright.sync_api import APIRequestContext
 
 
@@ -119,3 +120,41 @@ class CgvApiClient:
             for entry in data
             if isinstance(entry, dict)
         ]
+
+
+async def fetch_regn_list(
+    request: AsyncAPIRequestContext,
+    co_cd: str,
+) -> dict[str, Any]:
+    """bot.py의 극장 검색용. CgvApiClient는 sync Playwright 위에서 동작해서
+    async_playwright를 쓰는 bot.py에서는 재사용할 수 없어, 같은 에러 처리
+    규칙을 따르는 별도 async 함수로 둔다."""
+    response = await request.get(
+        "/api/v1/booking/searchRegnList",
+        params={"coCd": co_cd},
+        headers={"Accept": "application/json"},
+        timeout=30_000,
+    )
+
+    if not response.ok:
+        raise CgvApiError(
+            "CGV API request failed: "
+            f"status={response.status}, "
+            f"url={response.url}"
+        )
+
+    try:
+        result = await response.json()
+    except Exception as error:
+        raise CgvApiError(
+            "CGV API returned invalid JSON: "
+            f"url={response.url}"
+        ) from error
+
+    if not isinstance(result, dict):
+        raise CgvApiError(
+            "unexpected CGV API response type: "
+            f"{type(result).__name__}"
+        )
+
+    return result

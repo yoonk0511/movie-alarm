@@ -5,6 +5,7 @@ import discord
 from discord import app_commands
 from playwright.async_api import async_playwright
 
+from cgv_api import fetch_regn_list
 from config import BOOKING_PAGE_URL, CO_CD, DISCORD_BOT_TOKEN, DISCORD_GUILD_ID, LOG_FILE
 from targets_store import add_target, load_targets, remove_target
 from utils import get_base_url
@@ -37,17 +38,10 @@ async def search_theaters(query):
         )
         page = await context.new_page()
         await page.goto(BOOKING_PAGE_URL, timeout=30000, wait_until="networkidle")
-        response = await context.request.get(
-            "/api/v1/booking/searchRegnList",
-            params={"coCd": CO_CD},
-            headers={"Accept": "application/json"},
-            timeout=30000,
-        )
-        if not response.ok:
+        try:
+            result = await fetch_regn_list(context.request, CO_CD)
+        finally:
             await browser.close()
-            raise RuntimeError(f"CGV API request failed: status={response.status}")
-        result = await response.json()
-        await browser.close()
 
     matches = []
     for region in result.get("data") or []:
