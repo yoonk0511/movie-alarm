@@ -3,8 +3,20 @@ import logging
 import os
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
+
+
+def get_base_url(url: str) -> str:
+    parsed = urlsplit(url)
+
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError(
+            f"invalid BOOKING_PAGE_URL: {url}"
+        )
+
+    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 def log_info(message: str) -> None:

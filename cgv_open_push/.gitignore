@@ -1,6 +1,8 @@
 venv/
 .venv/
+.env
 state.json
+targets.json
 cgv-monitor.log
 run.log
 __pycache__/

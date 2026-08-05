@@ -1,7 +1,6 @@
 import logging
 import time
 from typing import Any
-from urllib.parse import urlsplit
 
 from playwright.sync_api import (
     BrowserContext,
@@ -18,12 +17,13 @@ from config import (
     LOG_FILE,
     POLL_INTERVAL_SEC,
     STATE_FILE,
-    TARGETS,
 )
+from targets_store import load_targets
 from utils import (
     build_signature,
     format_date,
     format_time,
+    get_base_url,
     load_state,
     log_error,
     log_info,
@@ -49,17 +49,6 @@ USER_AGENT = (
     "(KHTML, like Gecko) "
     "Chrome/128.0.0.0 Safari/537.36"
 )
-
-
-def get_base_url(url: str) -> str:
-    parsed = urlsplit(url)
-
-    if not parsed.scheme or not parsed.netloc:
-        raise ValueError(
-            f"invalid BOOKING_PAGE_URL: {url}"
-        )
-
-    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 def open_booking_page(page: Page) -> None:
@@ -111,15 +100,21 @@ def check_target(
     state: dict[str, set[str]],
     first_run: bool,
 ) -> None:
+    target_id = str(target["id"])
     site_no = str(target["site_no"])
     site_name = str(target["site_name"])
     grades = {
         str(grade)
         for grade in target["grades"]
     }
+    movie_filter = str(target.get("movie") or "")
+    date_filter = str(target.get("date") or "")
 
+    # 새로 추가된(state에 아직 없는) 대상은 이번 폴링을 기준선으로만 저장하고
+    # 알림은 보내지 않는다 (첫 실행 때 first_run과 동일한 취급).
+    target_is_new = target_id not in state
     previous_signatures = state.get(
-        site_no,
+        target_id,
         set(),
     )
 
@@ -131,6 +126,9 @@ def check_target(
     )
 
     for scn_ymd in scheduled_dates:
+        if date_filter and str(scn_ymd) != date_filter:
+            continue
+
         entries = api.fetch_showtimes(
             site_no=site_no,
             scn_ymd=scn_ymd,
@@ -148,7 +146,10 @@ def check_target(
                 entry.get("tcscnsGradNm", "")
             )
 
-            if grade not in grades:
+            if grades and grade not in grades:
+                continue
+
+            if movie_filter and movie_filter not in str(entry.get("prodNm", "")):
                 continue
 
             signature = build_signature(entry)
@@ -156,6 +157,7 @@ def check_target(
 
             is_new = (
                 not first_run
+                and not target_is_new
                 and signature not in previous_signatures
             )
 
@@ -187,7 +189,7 @@ def check_target(
             content=message,
         )
 
-    state[site_no] = current_signatures
+    state[target_id] = current_signatures
 
 
 def recover_browser_session(
@@ -246,7 +248,21 @@ def run_monitor(
                     "browser session refreshed"
                 )
 
-            for target in TARGETS:
+            targets = load_targets()
+
+            # 봇으로 제거된 대상의 state는 지운다. 나중에 같은 극장을 다시
+            # 추가하면 옛 기록과 비교하지 않고 새로 기준선을 잡게 하기 위함.
+            live_target_ids = {
+                str(target["id"])
+                for target in targets
+            }
+            state = {
+                target_id: signatures
+                for target_id, signatures in state.items()
+                if target_id in live_target_ids
+            }
+
+            for target in targets:
                 check_target(
                     api=api,
                     target=target,
