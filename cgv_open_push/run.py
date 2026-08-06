@@ -9,7 +9,6 @@ from playwright.async_api import (
     async_playwright,
 )
 
-from cgv_api import CgvTheaterClient
 from config import (
     BOOKING_PAGE_URL,
     BROWSER_REFRESH_INTERVAL_SEC,
@@ -19,7 +18,7 @@ from config import (
     STATE_FILE,
     USER_AGENT,
 )
-from monitor import check_target
+from monitor import TargetRegistry
 from targets_store import load_targets
 from utils import (
     format_date,
@@ -100,6 +99,32 @@ async def recover_browser_session(
         return False
 
 
+async def check_all_targets(
+    registry: TargetRegistry,
+    targets: list[dict[str, Any]],
+    first_run: bool,
+) -> None:
+    """targets.json에서 나온 감시 대상 dict들을 최신 목록과 동기화하고, 각 Target이
+    스스로 판단한 새 회차가 있으면 Discord로 알린다. 극장 하나를 못 찾는 등 개별
+    대상에서 에러가 나도 그 대상만 이번 폴링을 건너뛰고, 다른 대상은 계속 진행한다."""
+    for target, is_new in registry.sync(targets):
+        try:
+            new_entries = await target.check(baseline_only=first_run or is_new)
+        except Exception as error:
+            log_exception(f"{target.site_name} check failed, skipping this poll: {error}")
+            continue
+
+        if new_entries:
+            message = build_notification_message(
+                site_name=target.site_name,
+                entries=new_entries,
+            )
+            send_discord(
+                webhook_url=DISCORD_WEBHOOK_URL,
+                content=message,
+            )
+
+
 async def run_monitor(
     context: BrowserContext,
     page: Page,
@@ -107,9 +132,12 @@ async def run_monitor(
     state = load_state(STATE_FILE)
     first_run = not state
 
-    # site_name별로 CgvTheaterClient를 재사용한다 — 매번 새로 만들면 _resolve_site_no가
-    # 폴링마다 fetch_regn_list()를 다시 호출해서 극장 177개를 매번 긁어오게 된다.
-    theater_clients: dict[str, CgvTheaterClient] = {}
+    registry = TargetRegistry(context.request)
+    # 시작할 때 한 번 동기화해서 Target들을 만든 다음 저장된 signature를 복원한다.
+    # 이후 폴링에서는 registry가 같은 Target 인스턴스를 재사용하므로(site_no 캐시,
+    # 누적된 signature 유지), 다시 복원할 필요가 없다.
+    registry.sync(load_targets())
+    registry.restore_signatures(state)
 
     await open_booking_page(page)
 
@@ -132,50 +160,15 @@ async def run_monitor(
 
                 log_info("browser session refreshed")
 
-            targets = load_targets()
-
-            # 봇으로 제거된 대상의 state/클라이언트는 지운다. 나중에 같은 극장을 다시
-            # 추가하면 옛 기록과 비교하지 않고 새로 기준선을 잡게 하기 위함.
-            live_target_ids = {str(target["id"]) for target in targets}
-            state = {
-                target_id: signatures
-                for target_id, signatures in state.items()
-                if target_id in live_target_ids
-            }
-            theater_clients = {
-                target_id: client
-                for target_id, client in theater_clients.items()
-                if target_id in live_target_ids
-            }
-
-            for target in targets:
-                target_id = str(target["id"])
-
-                theater = theater_clients.get(target_id)
-                if theater is None:
-                    theater = CgvTheaterClient(context.request, site_name=target["site_name"])
-                    theater_clients[target_id] = theater
-
-                new_entries = await check_target(
-                    theater=theater,
-                    target=target,
-                    state=state,
-                    first_run=first_run,
-                )
-
-                if new_entries:
-                    message = build_notification_message(
-                        site_name=target["site_name"],
-                        entries=new_entries,
-                    )
-                    send_discord(
-                        webhook_url=DISCORD_WEBHOOK_URL,
-                        content=message,
-                    )
+            await check_all_targets(
+                registry=registry,
+                targets=load_targets(),
+                first_run=first_run,
+            )
 
             save_state(
                 state_file=STATE_FILE,
-                state=state,
+                state=registry.signatures_snapshot(),
             )
 
             first_run = False

@@ -1,19 +1,37 @@
 import asyncio
+from dataclasses import dataclass, field
 from typing import Any
+
+from playwright.async_api import APIRequestContext
 
 from cgv_api import CgvTheaterClient
 from utils import build_signature, log_info
 
 
-class TargetFilter:
-    """감시 대상(target) 하나의 movie/date/grade 조건으로 상영 회차를 걸러내고,
-    이전 폴링 대비 새로 나타난 회차를 가려낸다. 극장 스코프는 CgvTheaterClient가
-    site_name으로 이미 잡아주므로, 여기서는 movie/date/grade만 본다."""
+@dataclass
+class Target:
+    """감시 대상 하나. targets.json의 dict 한 줄에 대응하며, movie/date/grade 조건에
+    맞는 회차를 실제 CGV 데이터에서 찾아 이전 폴링과 비교하는 것까지 스스로 책임진다.
+    호출부는 dict을 파싱하거나 site_no/이전 signature를 따로 다루지 않는다."""
 
-    def __init__(self, target: dict[str, Any]) -> None:
-        self.grades = {str(grade) for grade in target["grades"]}
-        self.movie = str(target.get("movie") or "")
-        self.dates = {str(date) for date in (target.get("date") or [])}
+    id: str
+    site_name: str
+    movie: str
+    dates: set[str]
+    grades: set[str]
+    theater: CgvTheaterClient
+    previous_signatures: set[str] = field(default_factory=set)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], request: APIRequestContext) -> "Target":
+        return cls(
+            id=str(data["id"]),
+            site_name=str(data["site_name"]),
+            movie=str(data.get("movie") or ""),
+            dates={str(d) for d in (data.get("date") or [])},
+            grades={str(g) for g in data["grades"]},
+            theater=CgvTheaterClient(request, site_name=str(data["site_name"])),
+        )
 
     def matches_date(self, scn_ymd: str) -> bool:
         return not self.dates or str(scn_ymd) in self.dates
@@ -25,99 +43,113 @@ class TargetFilter:
             return False
         return True
 
-    def split_new_entries(
-        self,
-        entries: list[dict[str, Any]],
-        previous_signatures: set[str],
-        *,
-        baseline_only: bool,
-    ) -> tuple[list[dict[str, Any]], set[str]]:
-        """조건에 맞는 entries 중 새로 나타난 것들과, 이번 폴링의 signature 전체를
-        반환한다. baseline_only=True면 이번 폴링은 기준선만 잡고 new_entries는
-        항상 비운다 (첫 실행/방금 추가된 대상 처리용)."""
-        new_entries: list[dict[str, Any]] = []
+    async def check(self, *, baseline_only: bool) -> list[dict[str, Any]]:
+        """실제 CGV 데이터를 가져와 자기 조건에 맞는 회차 중 새로 나타난 것을 반환하고,
+        자신의 previous_signatures를 이번 폴링 결과로 갱신한다. baseline_only=True면
+        이번 폴링은 기준선만 잡고 new_entries는 항상 비운다 (첫 실행/방금 추가된
+        대상 처리용)."""
         current_signatures: set[str] = set()
+        new_entries: list[dict[str, Any]] = []
 
-        for entry in entries:
-            if not self.matches_entry(entry):
+        scheduled_dates = await self.theater.fetch_scheduled_dates()
+
+        for scn_ymd in scheduled_dates:
+            if not self.matches_date(scn_ymd):
                 continue
 
-            signature = build_signature(entry)
-            current_signatures.add(signature)
+            entries = await self.theater.fetch_showtimes(scn_ymd)
 
-            if not baseline_only and signature not in previous_signatures:
-                new_entries.append(entry)
+            for entry in entries:
+                if not self.matches_entry(entry):
+                    continue
 
-        return new_entries, current_signatures
+                signature = build_signature(entry)
+                current_signatures.add(signature)
 
+                if not baseline_only and signature not in self.previous_signatures:
+                    new_entries.append(entry)
 
-async def check_target(
-    theater: CgvTheaterClient,
-    target: dict[str, Any],
-    state: dict[str, set[str]],
-    first_run: bool,
-) -> list[dict[str, Any]]:
-    """감시 대상 하나를 폴링해서 새로 나타난 상영 회차를 반환한다 (없으면 빈 리스트).
-    state는 이번 폴링 결과로 갱신하지만, 알림 전송은 호출부(run.py) 책임이다."""
-    target_id = str(target["id"])
-    site_name = str(target["site_name"])
-    target_filter = TargetFilter(target)
+            await asyncio.sleep(0.3)
 
-    # 새로 추가된(state에 아직 없는) 대상은 이번 폴링을 기준선으로만 저장하고
-    # 알림은 보내지 않는다 (첫 실행 때 first_run과 동일한 취급).
-    target_is_new = target_id not in state
-    previous_signatures = state.get(target_id, set())
-    baseline_only = first_run or target_is_new
+        self.previous_signatures = current_signatures
 
-    current_signatures: set[str] = set()
-    new_entries: list[dict[str, Any]] = []
-
-    scheduled_dates = await theater.fetch_scheduled_dates()
-
-    for scn_ymd in scheduled_dates:
-        if not target_filter.matches_date(scn_ymd):
-            continue
-
-        entries = await theater.fetch_showtimes(scn_ymd)
-
-        date_new_entries, date_signatures = target_filter.split_new_entries(
-            entries, previous_signatures, baseline_only=baseline_only
-        )
-        new_entries.extend(date_new_entries)
-        current_signatures |= date_signatures
-
-        await asyncio.sleep(0.3)
-
-    state[target_id] = current_signatures
-
-    if new_entries:
-        new_entries.sort(
-            key=lambda entry: (
-                str(entry.get("scnYmd", "")),
-                str(entry.get("scnsrtTm", "")),
+        if new_entries:
+            new_entries.sort(
+                key=lambda entry: (
+                    str(entry.get("scnYmd", "")),
+                    str(entry.get("scnsrtTm", "")),
+                )
             )
-        )
-        log_info(f"{site_name} new showtimes: {len(new_entries)}")
+            log_info(f"{self.site_name} new showtimes: {len(new_entries)}")
 
-    return new_entries
+        return new_entries
+
+
+class TargetRegistry:
+    """target id -> Target 인스턴스를 폴링 사이에 재사용한다. 이렇게 해야
+    CgvTheaterClient의 site_no 캐시와 이전 폴링 signature가 폴링마다 새로
+    계산되지 않고 유지된다. targets.json이 바뀔 때마다(추가/삭제) 최신 목록과
+    동기화하고, 방금 새로 생긴 대상인지도 여기서 판단한다."""
+
+    def __init__(self, request: APIRequestContext) -> None:
+        self._request = request
+        self._targets: dict[str, Target] = {}
+
+    def sync(self, target_dicts: list[dict[str, Any]]) -> list[tuple[Target, bool]]:
+        """(Target, is_new) 리스트를 반환한다. targets.json에서 사라진 대상은 정리한다."""
+        live_ids = {str(data["id"]) for data in target_dicts}
+        self._targets = {
+            target_id: target
+            for target_id, target in self._targets.items()
+            if target_id in live_ids
+        }
+
+        result = []
+        for data in target_dicts:
+            target_id = str(data["id"])
+            is_new = target_id not in self._targets
+            if is_new:
+                self._targets[target_id] = Target.from_dict(data, self._request)
+            result.append((self._targets[target_id], is_new))
+        return result
+
+    def restore_signatures(self, state: dict[str, list[str]]) -> None:
+        for target_id, signatures in state.items():
+            if target_id in self._targets:
+                self._targets[target_id].previous_signatures = set(signatures)
+
+    def signatures_snapshot(self) -> dict[str, list[str]]:
+        return {
+            target_id: sorted(target.previous_signatures)
+            for target_id, target in self._targets.items()
+        }
 
 
 if __name__ == "__main__":
-    # 실제 CGV API에 붙는 수동 스모크 테스트. check_target이 기준선 처리/새 회차
-    # 판별을 제대로 하는지 눈으로 확인하고 싶을 때 실행 (pytest 목 테스트는
-    # tests/test_monitor.py 참고).
+    # 실제 CGV API에 붙는 수동 스모크 테스트. 대상 여러 개를 동시에 다루는 것과,
+    # 극장을 못 찾는 대상 하나가 다른 대상에 영향을 주지 않는 것까지 확인한다
+    # (pytest 목 테스트는 tests/test_monitor.py 참고).
     from playwright.async_api import async_playwright
 
     from config import BOOKING_PAGE_URL
     from utils import get_base_url
 
-    SAMPLE_TARGET = {
-        "id": "demo",
-        "site_name": "용산아이파크몰",
-        "movie": "오디세이",
-        "date": [],
-        "grades": ["아이맥스"],
-    }
+    SAMPLE_TARGETS = [
+        {
+            "id": "demo-1",
+            "site_name": "용산아이파크몰",
+            "movie": "오디세이",
+            "date": [],
+            "grades": ["아이맥스"],
+        },
+        {
+            "id": "demo-2",
+            "site_name": "동탄",
+            "movie": "",
+            "date": [],
+            "grades": [],
+        },
+    ]
 
     async def demo() -> None:
         async with async_playwright() as playwright:
@@ -127,33 +159,51 @@ if __name__ == "__main__":
             await page.goto(BOOKING_PAGE_URL, timeout=30_000, wait_until="networkidle")
 
             try:
-                theater = CgvTheaterClient(context.request, site_name=SAMPLE_TARGET["site_name"])
-                state: dict[str, set[str]] = {}
+                registry = TargetRegistry(context.request)
 
-                baseline = await check_target(theater, SAMPLE_TARGET, state, first_run=True)
-                print(f"[check_target] 첫 실행(기준선만 잡음): new_entries={len(baseline)}개")
-                print(f"  state에 저장된 signature 수: {len(state[SAMPLE_TARGET['id']])}")
-
-                unchanged = await check_target(theater, SAMPLE_TARGET, state, first_run=False)
-                print(f"[check_target] 변화 없을 때: new_entries={len(unchanged)}개")
-
-                # signature 하나를 일부러 지워서 "새로 생긴 회차"인 것처럼 시뮬레이션
-                signatures = state[SAMPLE_TARGET["id"]]
-                if signatures:
-                    signatures.pop()
-                    simulated_new = await check_target(
-                        theater, SAMPLE_TARGET, state, first_run=False
-                    )
+                print("-- 첫 실행 (여러 대상 동시 처리, 기준선만 잡음) --")
+                for target, is_new in registry.sync(SAMPLE_TARGETS):
+                    baseline = await target.check(baseline_only=True)
                     print(
-                        f"[check_target] signature 하나 지운 뒤: new_entries={len(simulated_new)}개"
+                        f"[{target.site_name}] is_new={is_new} "
+                        f"new_entries={len(baseline)}개 "
+                        f"signature 수={len(target.previous_signatures)}"
                     )
-                    for entry in simulated_new[:3]:
+
+                print("-- 재실행 (변화 없어야 함) --")
+                for target, _is_new in registry.sync(SAMPLE_TARGETS):
+                    unchanged = await target.check(baseline_only=False)
+                    print(f"[{target.site_name}] new_entries={len(unchanged)}개")
+
+                print("-- signature 하나 지워서 '새로 생긴 회차' 시뮬레이션 --")
+                first_target, _ = registry.sync(SAMPLE_TARGETS)[0]
+                if first_target.previous_signatures:
+                    first_target.previous_signatures.pop()
+                    simulated = await first_target.check(baseline_only=False)
+                    print(f"[{first_target.site_name}] new_entries={len(simulated)}개")
+                    for entry in simulated[:3]:
                         print(
                             " -",
                             entry.get("prodNm"),
                             entry.get("tcscnsGradNm"),
                             entry.get("scnsrtTm"),
                         )
+
+                print("-- 존재하지 않는 극장 이름 (개별 실패가 격리되는지 확인) --")
+                bad_target = Target.from_dict(
+                    {
+                        "id": "demo-bad",
+                        "site_name": "존재하지않는극장이름",
+                        "movie": "",
+                        "date": [],
+                        "grades": [],
+                    },
+                    context.request,
+                )
+                try:
+                    await bad_target.check(baseline_only=True)
+                except Exception as error:
+                    print(f"[존재하지않는극장이름] 예상대로 실패 (다른 대상엔 영향 없음): {error}")
             finally:
                 await browser.close()
 
