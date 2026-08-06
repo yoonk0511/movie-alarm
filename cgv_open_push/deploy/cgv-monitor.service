@@ -1,0 +1,17 @@
+[Unit]
+Description=cgv-open-push monitor (Discord 알림 폴링)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/project/cgv_open_push
+ExecStart=/home/ec2-user/project/.venv/bin/python run.py
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,6 @@
 import pytest
 
-from utils import build_signature, format_date, format_time, get_base_url
+from utils import build_signature, format_date, format_time, get_base_url, normalize_name
 
 
 def test_get_base_url_strips_path_and_query():
@@ -46,3 +46,11 @@ def test_build_signature_joins_fields_in_order():
 
 def test_build_signature_defaults_missing_fields_to_empty_string():
     assert build_signature({}) == "||||"
+
+
+def test_normalize_name_strips_all_whitespace():
+    assert normalize_name("씨네드쉐프 용산") == "씨네드쉐프용산"
+
+
+def test_normalize_name_passes_through_already_normalized():
+    assert normalize_name("용산아이파크몰") == "용산아이파크몰"

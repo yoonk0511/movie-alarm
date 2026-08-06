@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlsplit
@@ -8,13 +9,17 @@ from urllib.parse import urlsplit
 import requests
 
 
+def normalize_name(name: str) -> str:
+    """이름 비교용. 띄어쓰기 유무로 매칭이 갈리지 않게 공백을 다 지운다
+    (예: "씨네드쉐프 용산" == "씨네드쉐프용산")."""
+    return re.sub(r"\s+", "", name)
+
+
 def get_base_url(url: str) -> str:
     parsed = urlsplit(url)
 
     if not parsed.scheme or not parsed.netloc:
-        raise ValueError(
-            f"invalid BOOKING_PAGE_URL: {url}"
-        )
+        raise ValueError(f"invalid BOOKING_PAGE_URL: {url}")
 
     return f"{parsed.scheme}://{parsed.netloc}"
 
@@ -35,11 +40,20 @@ def log_error(message: str) -> None:
     logging.error(message)
 
 
+def log_exception(message: str) -> None:
+    """except 블록 안에서만 호출: 콘솔에는 메시지만 찍고, 로그 파일에는 트레이스백까지 남긴다.
+    운영 중 원인 불명 에러가 나면 메시지만으로는 어디서 터졌는지 알 수 없어서, 실제
+    예외 상황(재시도 경로)에서는 log_error 대신 이걸 쓴다."""
+    print(
+        f"[{datetime.now():%Y-%m-%d %H:%M:%S}] ERROR: {message}",
+        flush=True,
+    )
+    logging.exception(message)
+
+
 def send_discord(webhook_url: str, content: str) -> None:
     if not webhook_url:
-        log_error(
-            "DISCORD_WEBHOOK_URL not set, skipping notification"
-        )
+        log_error("DISCORD_WEBHOOK_URL not set, skipping notification")
         return
 
     try:
@@ -51,9 +65,7 @@ def send_discord(webhook_url: str, content: str) -> None:
         response.raise_for_status()
 
     except requests.RequestException as error:
-        log_error(
-            f"failed to send discord message: {error}"
-        )
+        log_error(f"failed to send discord message: {error}")
 
 
 def load_state(
@@ -71,9 +83,7 @@ def load_state(
             data = json.load(file)
 
     except (OSError, json.JSONDecodeError) as error:
-        log_error(
-            f"failed to load state file: {error}"
-        )
+        log_error(f"failed to load state file: {error}")
         return {}
 
     if not isinstance(data, dict):
@@ -86,10 +96,7 @@ def load_state(
         if not isinstance(signatures, list):
             continue
 
-        state[str(site_no)] = {
-            str(signature)
-            for signature in signatures
-        }
+        state[str(site_no)] = {str(signature) for signature in signatures}
 
     return state
 
@@ -98,10 +105,7 @@ def save_state(
     state_file: str,
     state: dict[str, set[str]],
 ) -> None:
-    serialized_state = {
-        site_no: sorted(signatures)
-        for site_no, signatures in state.items()
-    }
+    serialized_state = {site_no: sorted(signatures) for site_no, signatures in state.items()}
 
     temporary_file = f"{state_file}.tmp"
 
@@ -124,9 +128,7 @@ def save_state(
         )
 
     except OSError as error:
-        log_error(
-            f"failed to save state file: {error}"
-        )
+        log_error(f"failed to save state file: {error}")
 
         try:
             if os.path.exists(temporary_file):
@@ -146,10 +148,7 @@ def build_signature(
         "prodNm",
     )
 
-    return "|".join(
-        str(entry.get(field, ""))
-        for field in fields
-    )
+    return "|".join(str(entry.get(field, "")) for field in fields)
 
 
 def format_time(hhmm: str) -> str:
@@ -163,8 +162,4 @@ def format_date(yyyymmdd: str) -> str:
     if len(yyyymmdd) != 8:
         return yyyymmdd
 
-    return (
-        f"{yyyymmdd[:4]}-"
-        f"{yyyymmdd[4:6]}-"
-        f"{yyyymmdd[6:8]}"
-    )
+    return f"{yyyymmdd[:4]}-{yyyymmdd[4:6]}-{yyyymmdd[6:8]}"

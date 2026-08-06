@@ -12,9 +12,13 @@ def load_targets():
     with open(TARGETS_FILE, "r", encoding="utf-8") as f:
         targets = json.load(f)
     for t in targets:
-        t.setdefault("id", t["site_no"])
+        t.setdefault("id", t["site_name"])
         t.setdefault("movie", "")
-        t.setdefault("date", "")
+        t.setdefault("date", [])
+        if isinstance(t["date"], str):
+            # 예전엔 date가 단일 문자열이었다. 빈 문자열은 "날짜 무관", 값이 있으면
+            # 그 날짜 하나짜리 리스트로 취급해서 새 스키마로 옮겨온다.
+            t["date"] = [t["date"]] if t["date"] else []
     return targets
 
 
@@ -23,27 +27,34 @@ def save_targets(targets):
         json.dump(targets, f, ensure_ascii=False, indent=2)
 
 
-def add_target(site_no, site_name, grades, movie="", date=""):
-    """감시 대상을 추가한다. 같은 (site_no, movie, date) 조합이 이미 있으면 grades를 합친다.
+def add_target(site_name, grades, movie="", date=None):
+    """감시 대상을 추가한다. 같은 (site_name, movie) 조합이 이미 있으면 grades와
+    date를 각각 합집합으로 합친다 (movie만 식별자, grades/date는 둘 다 누적되는
+    필터). date는 감시할 날짜(YYYYMMDD) 리스트 — 비우면 날짜 무관. site_no는
+    저장하지 않는다 — CgvTheaterClient가 site_name으로 그때그때 알아서 찾는다.
     Returns (changed, target).
     """
+    date = set(date or [])
+
     targets = load_targets()
     for t in targets:
-        if t["site_no"] == site_no and t.get("movie", "") == movie and t.get("date", "") == date:
-            merged = sorted(set(t["grades"]) | set(grades))
-            changed = merged != sorted(t["grades"])
-            t["grades"] = merged
-            t["site_name"] = site_name
+        if t["site_name"] == site_name and t.get("movie", "") == movie:
+            merged_grades = sorted(set(t["grades"]) | set(grades))
+            merged_dates = sorted(set(t.get("date") or []) | date)
+            changed = merged_grades != sorted(t["grades"]) or merged_dates != sorted(
+                t.get("date") or []
+            )
+            t["grades"] = merged_grades
+            t["date"] = merged_dates
             if changed:
                 save_targets(targets)
             return changed, t
 
     new_target = {
         "id": uuid.uuid4().hex[:8],
-        "site_no": site_no,
         "site_name": site_name,
         "movie": movie,
-        "date": date,
+        "date": sorted(date),
         "grades": sorted(set(grades)),
     }
     targets.append(new_target)

@@ -67,7 +67,9 @@ def test_search_cmd_reports_no_match(monkeypatch):
     run(bot.search_cmd.callback(interaction, "없는극장"))
 
     interaction.response.defer.assert_awaited_once()
-    interaction.followup.send.assert_called_once_with("'없는극장'에 해당하는 극장을 찾지 못했습니다.")
+    interaction.followup.send.assert_called_once_with(
+        "'없는극장'에 해당하는 극장을 찾지 못했습니다."
+    )
 
 
 def test_search_cmd_lists_matches(monkeypatch):
@@ -104,12 +106,21 @@ def test_add_cmd_rejects_invalid_date_format():
     interaction.response.defer.assert_not_called()
 
 
-def test_add_cmd_allows_no_grade_selected_as_any_grade(monkeypatch):
+ENTRIES = [
+    {"prodNm": "듄", "tcscnsGradNm": "아이맥스"},
+    {"prodNm": "듄", "tcscnsGradNm": "4DX"},
+    {"prodNm": "탑건", "tcscnsGradNm": "일반"},
+    {"prodNm": "노그레이드"},
+]
+
+
+def test_add_cmd_adds_directly_when_no_showtimes(monkeypatch):
     monkeypatch.setattr(
         bot,
         "search_theaters",
         AsyncMock(return_value=[{"site_no": "0013", "site_name": "용산아이파크몰"}]),
     )
+    monkeypatch.setattr(bot, "fetch_showtimes_for_site", AsyncMock(return_value=[]))
     monkeypatch.setattr(
         bot,
         "add_target",
@@ -124,15 +135,43 @@ def test_add_cmd_allows_no_grade_selected_as_any_grade(monkeypatch):
 
     interaction.followup.send.assert_called_once()
     message = interaction.followup.send.call_args[0][0]
-    assert "등급 무관" in message
+    assert "등급 무관" in message and "전체 영화" in message
 
 
-def test_add_cmd_adds_target_with_movie_and_date(monkeypatch):
+def test_add_cmd_offers_movie_select_when_showtimes_available(monkeypatch):
     monkeypatch.setattr(
         bot,
         "search_theaters",
         AsyncMock(return_value=[{"site_no": "0013", "site_name": "용산아이파크몰"}]),
     )
+    monkeypatch.setattr(bot, "fetch_showtimes_for_site", AsyncMock(return_value=ENTRIES))
+    interaction = make_interaction()
+
+    run(bot.add_cmd.callback(interaction, theater="용산아이파크몰", date="20260810"))
+
+    _, kwargs = interaction.followup.send.call_args
+    view = kwargs["view"]
+    select = view.children[0]
+    assert select.options[0].value == bot.ALL_MOVIES
+    assert {o.value for o in select.options[1:]} == {"듄", "탑건", "노그레이드"}
+    assert select.date == "20260810"
+
+
+def test_movie_select_callback_offers_grade_select_for_chosen_movie():
+    site = {"site_no": "0013", "site_name": "용산아이파크몰"}
+    select = bot.MovieSelect(site=site, date="20260810", entries=ENTRIES)
+    select._values = ["듄"]
+    interaction = make_interaction()
+
+    run(select.callback(interaction))
+
+    _, kwargs = interaction.response.edit_message.call_args
+    grade_select = kwargs["view"].children[0]
+    assert {o.value for o in grade_select.options} == {"아이맥스", "4DX"}
+    assert grade_select.movie == "듄" and grade_select.date == "20260810"
+
+
+def test_movie_select_callback_adds_directly_when_movie_has_no_grades(monkeypatch):
     captured = {}
 
     def fake_add_target(site_no, site_name, grades, movie="", date=""):
@@ -140,13 +179,48 @@ def test_add_cmd_adds_target_with_movie_and_date(monkeypatch):
         return True, make_target(grades=grades, movie=movie, date=date)
 
     monkeypatch.setattr(bot, "add_target", fake_add_target)
+
+    site = {"site_no": "0013", "site_name": "용산아이파크몰"}
+    select = bot.MovieSelect(site=site, date="", entries=ENTRIES)
+    select._values = ["노그레이드"]
     interaction = make_interaction()
 
-    run(
-        bot.add_cmd.callback(
-            interaction, theater="용산아이파크몰", movie="F1", date="20260810", imax=True
-        )
-    )
+    run(select.callback(interaction))
+
+    assert captured["grades"] == [] and captured["movie"] == "노그레이드"
+    _, kwargs = interaction.response.edit_message.call_args
+    assert kwargs["view"] is None
+
+
+def test_movie_select_callback_all_movies_combines_grades():
+    site = {"site_no": "0013", "site_name": "용산아이파크몰"}
+    select = bot.MovieSelect(site=site, date="", entries=ENTRIES)
+    select._values = [bot.ALL_MOVIES]
+    interaction = make_interaction()
+
+    run(select.callback(interaction))
+
+    _, kwargs = interaction.response.edit_message.call_args
+    grade_select = kwargs["view"].children[0]
+    assert {o.value for o in grade_select.options} == {"아이맥스", "4DX", "일반"}
+    assert grade_select.movie == ""
+
+
+def test_grade_select_callback_adds_target_with_chosen_grades(monkeypatch):
+    captured = {}
+
+    def fake_add_target(site_no, site_name, grades, movie="", date=""):
+        captured.update(site_no=site_no, site_name=site_name, grades=grades, movie=movie, date=date)
+        return True, make_target(grades=grades, movie=movie, date=date)
+
+    monkeypatch.setattr(bot, "add_target", fake_add_target)
+
+    site = {"site_no": "0013", "site_name": "용산아이파크몰"}
+    select = bot.GradeSelect(site=site, movie="F1", date="20260810", grades=["아이맥스", "4DX"])
+    select._values = ["아이맥스"]
+    interaction = make_interaction()
+
+    run(select.callback(interaction))
 
     assert captured == {
         "site_no": "0013",
@@ -155,8 +229,9 @@ def test_add_cmd_adds_target_with_movie_and_date(monkeypatch):
         "movie": "F1",
         "date": "20260810",
     }
-    message = interaction.followup.send.call_args[0][0]
-    assert "F1" in message and "20260810" in message and "추가/변경됨" in message
+    _, kwargs = interaction.response.edit_message.call_args
+    assert "F1" in kwargs["content"] and "20260810" in kwargs["content"]
+    assert kwargs["view"] is None
 
 
 def test_add_cmd_prompts_when_multiple_matches(monkeypatch):
@@ -172,7 +247,7 @@ def test_add_cmd_prompts_when_multiple_matches(monkeypatch):
     )
     interaction = make_interaction()
 
-    run(bot.add_cmd.callback(interaction, theater="용산", imax=True))
+    run(bot.add_cmd.callback(interaction, theater="용산"))
 
     message = interaction.followup.send.call_args[0][0]
     assert "용산아이파크몰" in message
