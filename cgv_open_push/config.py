@@ -2,16 +2,13 @@ import os
 
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "")
 
 CO_CD = "A420"
-
-# tcscnsGradNm 값으로 쓸 수 있는 상영관 등급
-VALID_GRADES = ["아이맥스", "4DX", "SCREENX", "일반", "프리미엄관"]
 
 # targets.json이 없을 때 최초 1회 생성에 쓰이는 기본 감시 대상.
 # site_no는 CGV 극장 코드, grades는 tcscnsGradNm 값.
@@ -37,3 +34,8 @@ TARGETS_FILE = os.path.join(os.path.dirname(__file__), "targets.json")
 LOG_FILE = os.path.join(os.path.dirname(__file__), "cgv-monitor.log")
 
 BOOKING_PAGE_URL = "https://cgv.co.kr/cnm/movieBook/cinema"
+
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+)

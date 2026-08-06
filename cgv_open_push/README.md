@@ -79,24 +79,47 @@ python3 monitor.py   # 알림 감시 루프
 python3 bot.py        # 슬래시 커맨드 봇 (감시 대상 관리를 안 쓸 거면 생략 가능)
 ```
 
-계속 떠 있어야 하는 프로세스이므로, 터미널을 닫아도 유지하려면 `nohup`이나
-`launchd`(macOS) 같은 걸로 백그라운드/데몬화해서 돌리는 걸 권장.
+로컬에서 잠깐 띄워볼 때는 `nohup`으로 충분하지만:
 
 ```bash
 nohup python3 monitor.py > /dev/null 2>&1 &
 nohup python3 bot.py > /dev/null 2>&1 &
 ```
 
+실서비스(EC2 등)에서는 systemd로 등록해서 크래시 시 자동 재시작, 재부팅 시 자동 기동이 되게 한다.
+`deploy/cgv-monitor.service`, `deploy/cgv-bot.service`의 `User=`, `WorkingDirectory=`,
+`ExecStart=`(venv 경로)를 실제 배포 환경에 맞게 확인한 뒤:
+
+```bash
+sudo cp deploy/cgv-monitor.service deploy/cgv-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now cgv-monitor cgv-bot
+
+# 상태/로그 확인
+systemctl status cgv-monitor
+journalctl -u cgv-monitor -f
+```
+
+두 서비스 다 `Restart=on-failure`로 등록되어 있어, Cloudflare 세션이 죽거나 예기치 못한
+예외로 프로세스가 죽어도 10초 뒤 자동 재시작된다. 5분 안에 5번 넘게 재시작이 반복되면
+(연속 크래시) systemd가 재시작을 멈추므로, 그럴 땐 `journalctl -u <서비스명>`으로 원인부터
+확인할 것 — 에러 로그에는 이제 트레이스백까지 남는다(`utils.log_exception`).
+
 ## 봇 커맨드
 
 - `/targets` — 현재 감시 중인 극장/영화/날짜/등급 목록 조회 (각 항목의 id도 같이 표시)
 - `/search query:<극장 이름>` — 극장 이름으로 CGV 사이트 코드(site_no) 검색
-- `/add theater:<극장 이름> movie:<영화 제목> date:<YYYYMMDD> imax:<bool> dx4:<bool> screenx:<bool> general:<bool> premium:<bool>` —
-  극장 이름 검색 결과가 하나로 좁혀지면 감시 대상에 추가.
-  `movie`는 영화 제목 부분일치, `date`는 특정 날짜만 감시 (둘 다 비우면 전체 대상).
-  등급도 하나도 안 고르면 등급 무관으로 감시.
-  같은 극장에 (movie, date) 조합이 다르면 별도 감시 대상으로 추가되어, 한 극장에서
-  여러 영화/날짜를 동시에 감시할 수 있음. 같은 조합이 이미 있으면 선택한 등급만 합침
+- `/add theater:<극장 이름> date:<YYYYMMDD>` —
+  극장 이름 검색 결과가 하나로 좁혀지면, 그 극장의 실제 상영 스케줄(`date` 비우면 가장
+  가까운 상영일 기준)을 API로 조회해서 순서대로 선택하게 함:
+  1. **영화 선택** (드롭다운) — 실제 상영 중인 영화 목록 + "전체 영화"
+  2. **등급 선택** (드롭다운, 복수 선택 가능) — 고른 영화가 실제로 상영 중인 등급만 표시.
+     아무 것도 안 고르면 등급 무관으로 감시
+  스케줄 자체가 없으면(개봉 전 극장 등) 영화/등급 선택 없이 바로 전체 영화·등급 무관으로 추가됨.
+  `date`를 지정하면 그 날짜 스케줄로 영화/등급 목록을 보여주고 그 날짜만 감시,
+  비우면 가장 가까운 상영일 스케줄로 목록을 보여주고 날짜 무관으로 감시. 같은 극장에
+  (movie, date) 조합이 다르면 별도 감시 대상으로 추가되어, 한 극장에서 여러 영화/날짜를
+  동시에 감시할 수 있음. 같은 조합이 이미 있으면 선택한 등급만 합침
 - `/remove target:<자동완성으로 선택 또는 극장/영화 이름>` — 감시 대상에서 제거
 
 `/add`, `/remove`는 각각 `targets.json`을 바꾸며, `monitor.py`는 매 폴링(기본 5분)마다

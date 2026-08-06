@@ -1,0 +1,17 @@
+[Unit]
+Description=cgv-open-push bot (감시 대상 관리용 Discord 슬래시 커맨드)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/project/cgv_open_push
+ExecStart=/home/ec2-user/project/.venv/bin/python bot.py
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

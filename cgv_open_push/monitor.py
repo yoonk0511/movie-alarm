@@ -17,6 +17,7 @@ from config import (
     LOG_FILE,
     POLL_INTERVAL_SEC,
     STATE_FILE,
+    USER_AGENT,
 )
 from targets_store import load_targets
 from utils import (
@@ -25,7 +26,7 @@ from utils import (
     format_time,
     get_base_url,
     load_state,
-    log_error,
+    log_exception,
     log_info,
     save_state,
     send_discord,
@@ -40,14 +41,6 @@ logging.basicConfig(
     ],
     level=logging.INFO,
     format="%(asctime)s:%(levelname)s:%(message)s",
-)
-
-USER_AGENT = (
-    "Mozilla/5.0 "
-    "(Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 "
-    "(KHTML, like Gecko) "
-    "Chrome/128.0.0.0 Safari/537.36"
 )
 
 
@@ -103,10 +96,7 @@ def check_target(
     target_id = str(target["id"])
     site_no = str(target["site_no"])
     site_name = str(target["site_name"])
-    grades = {
-        str(grade)
-        for grade in target["grades"]
-    }
+    grades = {str(grade) for grade in target["grades"]}
     movie_filter = str(target.get("movie") or "")
     date_filter = str(target.get("date") or "")
 
@@ -135,16 +125,12 @@ def check_target(
         )
 
         for entry in entries:
-            entry_site_no = str(
-                entry.get("siteNo", "")
-            )
+            entry_site_no = str(entry.get("siteNo", ""))
 
             if entry_site_no != site_no:
                 continue
 
-            grade = str(
-                entry.get("tcscnsGradNm", "")
-            )
+            grade = str(entry.get("tcscnsGradNm", ""))
 
             if grades and grade not in grades:
                 continue
@@ -155,11 +141,7 @@ def check_target(
             signature = build_signature(entry)
             current_signatures.add(signature)
 
-            is_new = (
-                not first_run
-                and not target_is_new
-                and signature not in previous_signatures
-            )
+            is_new = not first_run and not target_is_new and signature not in previous_signatures
 
             if is_new:
                 new_entries.append(entry)
@@ -174,10 +156,7 @@ def check_target(
             )
         )
 
-        log_info(
-            f"{site_name} new showtimes: "
-            f"{len(new_entries)}"
-        )
+        log_info(f"{site_name} new showtimes: {len(new_entries)}")
 
         message = build_notification_message(
             site_name=site_name,
@@ -201,9 +180,7 @@ def recover_browser_session(
         return True
 
     except Exception as error:
-        log_error(
-            f"browser recovery failed: {error}"
-        )
+        log_exception(f"browser recovery failed: {error}")
         return False
 
 
@@ -221,10 +198,7 @@ def run_monitor(
 
     open_booking_page(page)
 
-    log_info(
-        "cgv-monitor started, "
-        "browser session established"
-    )
+    log_info("cgv-monitor started, browser session established")
 
     send_discord(
         webhook_url=DISCORD_WEBHOOK_URL,
@@ -235,27 +209,19 @@ def run_monitor(
 
     while True:
         try:
-            elapsed = (
-                time.monotonic()
-                - last_refresh
-            )
+            elapsed = time.monotonic() - last_refresh
 
             if elapsed >= BROWSER_REFRESH_INTERVAL_SEC:
                 reload_booking_page(page)
                 last_refresh = time.monotonic()
 
-                log_info(
-                    "browser session refreshed"
-                )
+                log_info("browser session refreshed")
 
             targets = load_targets()
 
             # 봇으로 제거된 대상의 state는 지운다. 나중에 같은 극장을 다시
             # 추가하면 옛 기록과 비교하지 않고 새로 기준선을 잡게 하기 위함.
-            live_target_ids = {
-                str(target["id"])
-                for target in targets
-            }
+            live_target_ids = {str(target["id"]) for target in targets}
             state = {
                 target_id: signatures
                 for target_id, signatures in state.items()
@@ -278,13 +244,9 @@ def run_monitor(
             first_run = False
 
         except Exception as error:
-            log_error(
-                f"poll failed, will retry: {error}"
-            )
+            log_exception(f"poll failed, will retry: {error}")
 
-            recovered = recover_browser_session(
-                page
-            )
+            recovered = recover_browser_session(page)
 
             if recovered:
                 last_refresh = time.monotonic()
@@ -293,9 +255,7 @@ def run_monitor(
 
 
 def run() -> None:
-    base_url = get_base_url(
-        BOOKING_PAGE_URL
-    )
+    base_url = get_base_url(BOOKING_PAGE_URL)
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -317,9 +277,7 @@ def run() -> None:
             )
 
         except KeyboardInterrupt:
-            log_info(
-                "cgv-monitor stopped by user"
-            )
+            log_info("cgv-monitor stopped by user")
 
         finally:
             context.close()
