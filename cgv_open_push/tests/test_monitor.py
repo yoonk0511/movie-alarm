@@ -4,7 +4,7 @@ from monitor import TargetFilter
 def make_target(**overrides):
     target = {
         "movie": "",
-        "date": "",
+        "date": [],
         "grades": [],
     }
     target.update(overrides)
@@ -25,9 +25,16 @@ def test_matches_date_true_when_no_date_filter():
     assert target_filter.matches_date("20260810") is True
 
 
-def test_matches_date_requires_exact_match_when_filter_set():
-    target_filter = TargetFilter(make_target(date="20260810"))
+def test_matches_date_requires_membership_when_filter_set():
+    target_filter = TargetFilter(make_target(date=["20260810"]))
     assert target_filter.matches_date("20260810") is True
+    assert target_filter.matches_date("20260811") is False
+
+
+def test_matches_date_allows_any_date_in_list():
+    target_filter = TargetFilter(make_target(date=["20260810", "20260815"]))
+    assert target_filter.matches_date("20260810") is True
+    assert target_filter.matches_date("20260815") is True
     assert target_filter.matches_date("20260811") is False
 
 

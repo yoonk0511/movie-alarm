@@ -13,10 +13,10 @@ class TargetFilter:
     def __init__(self, target: dict[str, Any]) -> None:
         self.grades = {str(grade) for grade in target["grades"]}
         self.movie = str(target.get("movie") or "")
-        self.date = str(target.get("date") or "")
+        self.dates = {str(date) for date in (target.get("date") or [])}
 
     def matches_date(self, scn_ymd: str) -> bool:
-        return not self.date or str(scn_ymd) == self.date
+        return not self.dates or str(scn_ymd) in self.dates
 
     def matches_entry(self, entry: dict[str, Any]) -> bool:
         if self.grades and str(entry.get("tcscnsGradNm", "")) not in self.grades:
@@ -100,3 +100,61 @@ async def check_target(
         log_info(f"{site_name} new showtimes: {len(new_entries)}")
 
     return new_entries
+
+
+if __name__ == "__main__":
+    # 실제 CGV API에 붙는 수동 스모크 테스트. check_target이 기준선 처리/새 회차
+    # 판별을 제대로 하는지 눈으로 확인하고 싶을 때 실행 (pytest 목 테스트는
+    # tests/test_monitor.py 참고).
+    from playwright.async_api import async_playwright
+
+    from config import BOOKING_PAGE_URL
+    from utils import get_base_url
+
+    SAMPLE_TARGET = {
+        "id": "demo",
+        "site_name": "용산아이파크몰",
+        "movie": "오디세이",
+        "date": [],
+        "grades": ["아이맥스"],
+    }
+
+    async def demo() -> None:
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            context = await browser.new_context(base_url=get_base_url(BOOKING_PAGE_URL))
+            page = await context.new_page()
+            await page.goto(BOOKING_PAGE_URL, timeout=30_000, wait_until="networkidle")
+
+            try:
+                theater = CgvTheaterClient(context.request, site_name=SAMPLE_TARGET["site_name"])
+                state: dict[str, set[str]] = {}
+
+                baseline = await check_target(theater, SAMPLE_TARGET, state, first_run=True)
+                print(f"[check_target] 첫 실행(기준선만 잡음): new_entries={len(baseline)}개")
+                print(f"  state에 저장된 signature 수: {len(state[SAMPLE_TARGET['id']])}")
+
+                unchanged = await check_target(theater, SAMPLE_TARGET, state, first_run=False)
+                print(f"[check_target] 변화 없을 때: new_entries={len(unchanged)}개")
+
+                # signature 하나를 일부러 지워서 "새로 생긴 회차"인 것처럼 시뮬레이션
+                signatures = state[SAMPLE_TARGET["id"]]
+                if signatures:
+                    signatures.pop()
+                    simulated_new = await check_target(
+                        theater, SAMPLE_TARGET, state, first_run=False
+                    )
+                    print(
+                        f"[check_target] signature 하나 지운 뒤: new_entries={len(simulated_new)}개"
+                    )
+                    for entry in simulated_new[:3]:
+                        print(
+                            " -",
+                            entry.get("prodNm"),
+                            entry.get("tcscnsGradNm"),
+                            entry.get("scnsrtTm"),
+                        )
+            finally:
+                await browser.close()
+
+    asyncio.run(demo())

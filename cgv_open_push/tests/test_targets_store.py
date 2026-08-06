@@ -17,7 +17,7 @@ def test_add_new_target_creates_entry(tmp_path, monkeypatch):
     assert target["site_name"] == "용산아이파크몰"
     assert target["grades"] == ["4DX", "아이맥스"]
     assert target["movie"] == ""
-    assert target["date"] == ""
+    assert target["date"] == []
     assert target["id"]
     assert "site_no" not in target
     assert targets_store.load_targets() == [target]
@@ -55,15 +55,40 @@ def test_add_target_with_different_movie_creates_separate_entry(tmp_path, monkey
     assert {t["movie"] for t in targets} == {"F1", "탑건"}
 
 
-def test_add_target_with_different_date_creates_separate_entry(tmp_path, monkeypatch):
+def test_add_target_with_different_date_merges_into_same_entry(tmp_path, monkeypatch):
+    """date는 grades처럼 식별자가 아니라 누적되는 필터라, 같은 (site_name, movie)면
+    날짜가 달라도 별도 entry가 아니라 하나로 합쳐진다."""
     _isolate(tmp_path, monkeypatch)
 
-    targets_store.add_target("용산아이파크몰", ["아이맥스"], movie="F1", date="20260810")
-    targets_store.add_target("용산아이파크몰", ["아이맥스"], movie="F1", date="20260811")
+    targets_store.add_target("용산아이파크몰", ["아이맥스"], movie="F1", date=["20260810"])
+    changed, target = targets_store.add_target(
+        "용산아이파크몰", ["아이맥스"], movie="F1", date=["20260811"]
+    )
 
-    targets = targets_store.load_targets()
-    assert len(targets) == 2
-    assert {t["date"] for t in targets} == {"20260810", "20260811"}
+    assert changed is True
+    assert target["date"] == ["20260810", "20260811"]
+    assert len(targets_store.load_targets()) == 1
+
+
+def test_add_target_with_multiple_dates_in_one_call(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+
+    changed, target = targets_store.add_target(
+        "용산아이파크몰", ["아이맥스"], movie="F1", date=["20260811", "20260810"]
+    )
+
+    assert changed is True
+    assert target["date"] == ["20260810", "20260811"]
+
+
+def test_add_target_reports_no_change_when_dates_already_present(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+
+    targets_store.add_target("용산아이파크몰", ["아이맥스"], movie="F1", date=["20260810"])
+    changed, target = targets_store.add_target("용산아이파크몰", [], movie="F1", date=["20260810"])
+
+    assert changed is False
+    assert target["date"] == ["20260810"]
 
 
 def test_remove_target_deletes_matching_entry(tmp_path, monkeypatch):
@@ -87,7 +112,7 @@ def test_load_targets_creates_file_from_defaults_when_missing(tmp_path, monkeypa
             "id": "0013",
             "site_name": "용산아이파크몰",
             "movie": "",
-            "date": "",
+            "date": [],
             "grades": ["아이맥스"],
         }
     ]
@@ -114,6 +139,20 @@ def test_load_targets_backfills_missing_fields_for_legacy_entries(tmp_path, monk
             "grades": ["아이맥스"],
             "id": "용산아이파크몰",
             "movie": "",
-            "date": "",
+            "date": [],
         }
     ]
+
+
+def test_load_targets_migrates_legacy_single_date_string_to_list(tmp_path, monkeypatch):
+    targets_file = _isolate(tmp_path, monkeypatch)
+    targets_file.write_text(
+        '[{"site_name": "용산아이파크몰", "grades": [], "date": "20260810"},'
+        ' {"site_name": "동탄", "grades": [], "date": ""}]',
+        encoding="utf-8",
+    )
+
+    result = targets_store.load_targets()
+
+    assert result[0]["date"] == ["20260810"]
+    assert result[1]["date"] == []
