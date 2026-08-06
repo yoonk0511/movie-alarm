@@ -4,7 +4,9 @@ CGV IMAX/4DX/SCREENX 등 예매 오픈을 감지해서 Discord로 알림만 보�
 예매 자체는 자동화하지 않음 — 알림을 받고 직접 클릭해서 예매해야 함.
 
 감시 대상(극장/등급)은 Discord 봇의 슬래시 커맨드로 실행 중에 조회·추가·삭제할 수 있다
-(`monitor.py`는 알림만 보내는 프로세스, `bot.py`는 감시 대상을 관리하는 별도 프로세스).
+(`run.py`는 알림만 보내는 프로세스, `bot.py`는 감시 대상을 관리하는 별도 프로세스.
+`run.py`는 브라우저 세션/폴링 루프/Discord 전송을 맡고, `monitor.py`는 감시 대상 하나당
+새로 열린 회차가 있는지 판단하는 순수 로직만 담당한다).
 
 ## 동작 방식
 
@@ -72,17 +74,17 @@ DISCORD_GUILD_ID=...
 ## 실행
 
 두 프로세스는 독립적으로 실행하며, `targets.json`을 통해서만 상태를 공유한다
-(`monitor.py`는 읽기만, `bot.py`는 쓰기만 한다).
+(`run.py`는 읽기만, `bot.py`는 쓰기만 한다).
 
 ```bash
-python3 monitor.py   # 알림 감시 루프
-python3 bot.py        # 슬래시 커맨드 봇 (감시 대상 관리를 안 쓸 거면 생략 가능)
+python3 run.py   # 알림 감시 루프 (브라우저 세션 + 폴링 + Discord 전송)
+python3 bot.py   # 슬래시 커맨드 봇 (감시 대상 관리를 안 쓸 거면 생략 가능)
 ```
 
 로컬에서 잠깐 띄워볼 때는 `nohup`으로 충분하지만:
 
 ```bash
-nohup python3 monitor.py > /dev/null 2>&1 &
+nohup python3 run.py > /dev/null 2>&1 &
 nohup python3 bot.py > /dev/null 2>&1 &
 ```
 
@@ -122,7 +124,7 @@ journalctl -u cgv-monitor -f
   동시에 감시할 수 있음. 같은 조합이 이미 있으면 선택한 등급만 합침
 - `/remove target:<자동완성으로 선택 또는 극장/영화 이름>` — 감시 대상에서 제거
 
-`/add`, `/remove`는 각각 `targets.json`을 바꾸며, `monitor.py`는 매 폴링(기본 5분)마다
+`/add`, `/remove`는 각각 `targets.json`을 바꾸며, `run.py`는 매 폴링(기본 5분)마다
 `targets.json`을 다시 읽으므로 재시작 없이 반영된다. 새로 추가한 대상은 추가 시점의
 스케줄을 기준선으로만 잡고, 그 다음 폴링부터 새로 열리는 회차만 알림을 보낸다.
 

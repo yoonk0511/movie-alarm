@@ -3,7 +3,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from cgv_api import CgvApiClient, CgvApiError, CgvMovie, CgvTheater, CgvTheaterClient
+from cgv_api import CgvApiClient, CgvApiError, CgvTheaterClient
+from cgv_models import CgvMovie, CgvTheater
 
 
 def run(coro):
@@ -168,6 +169,18 @@ def test_resolve_site_no_finds_exact_name_match():
     site_no = run(client._resolve_site_no())
 
     assert site_no == "0013"
+
+
+def test_resolve_site_no_ignores_whitespace_differences():
+    payload = make_regn_list_payload(
+        {"coCd": "A420", "siteNo": "P013", "siteNm": "씨네드쉐프 용산"},
+    )
+    request = make_request(make_response(payload))
+    client = CgvTheaterClient(request, site_name="씨네드쉐프용산", co_cd="A420")
+
+    site_no = run(client._resolve_site_no())
+
+    assert site_no == "P013"
 
 
 def test_resolve_site_no_caches_result_across_calls():

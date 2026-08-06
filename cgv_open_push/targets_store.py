@@ -12,7 +12,7 @@ def load_targets():
     with open(TARGETS_FILE, "r", encoding="utf-8") as f:
         targets = json.load(f)
     for t in targets:
-        t.setdefault("id", t["site_no"])
+        t.setdefault("id", t["site_name"])
         t.setdefault("movie", "")
         t.setdefault("date", "")
     return targets
@@ -23,24 +23,27 @@ def save_targets(targets):
         json.dump(targets, f, ensure_ascii=False, indent=2)
 
 
-def add_target(site_no, site_name, grades, movie="", date=""):
-    """감시 대상을 추가한다. 같은 (site_no, movie, date) 조합이 이미 있으면 grades를 합친다.
+def add_target(site_name, grades, movie="", date=""):
+    """감시 대상을 추가한다. 같은 (site_name, movie, date) 조합이 이미 있으면 grades를 합친다.
+    site_no는 저장하지 않는다 — CgvTheaterClient가 site_name으로 그때그때 알아서 찾는다.
     Returns (changed, target).
     """
     targets = load_targets()
     for t in targets:
-        if t["site_no"] == site_no and t.get("movie", "") == movie and t.get("date", "") == date:
+        if (
+            t["site_name"] == site_name
+            and t.get("movie", "") == movie
+            and t.get("date", "") == date
+        ):
             merged = sorted(set(t["grades"]) | set(grades))
             changed = merged != sorted(t["grades"])
             t["grades"] = merged
-            t["site_name"] = site_name
             if changed:
                 save_targets(targets)
             return changed, t
 
     new_target = {
         "id": uuid.uuid4().hex[:8],
-        "site_no": site_no,
         "site_name": site_name,
         "movie": movie,
         "date": date,

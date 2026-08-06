@@ -1,61 +1,14 @@
-from dataclasses import dataclass
 from typing import Any
 
 from playwright.async_api import APIRequestContext
 
+from cgv_models import CgvMovie, CgvTheater
 from config import CO_CD
+from utils import normalize_name
 
 
 class CgvApiError(RuntimeError):
     pass
-
-
-@dataclass
-class CgvTheater:
-    # 예시: {'coCd': 'A420', 'siteNo': '0056', 'siteNm': '강남', 'bzplcOperStusNm': '운영중',
-    #        'distance': None, 'movkndCd': None}
-    co_cd: str
-    site_no: str
-    site_name: str
-    biz_status: str | None = None
-    distance: float | None = None
-    movie_kind_cd: str | None = None
-
-    @classmethod
-    def from_api(cls, data: dict[str, Any]) -> "CgvTheater":
-        return cls(
-            co_cd=str(data.get("coCd", "")),
-            site_no=str(data.get("siteNo", "")),
-            site_name=str(data.get("siteNm", "")),
-            biz_status=data.get("bzplcOperStusNm"),
-            distance=data.get("distance"),
-            movie_kind_cd=data.get("movkndCd"),
-        )
-
-
-@dataclass
-class CgvMovie:
-    # 예시: {'coCd': 'A420', 'movNo': '30001323', 'movNm': '오디세이', 'i320Fnm': '30001323_320.jpg',
-    #        'scnBssTm': '172', 'cratgClsCd': '02', 'atktRate': '51.46', 'mblUrl': None}
-    co_cd: str
-    movie_no: str
-    movie_name: str
-    running_time_min: str | None = None
-    rating_cd: str | None = None
-    booking_rate: str | None = None
-    poster_file_name: str | None = None
-
-    @classmethod
-    def from_api(cls, data: dict[str, Any]) -> "CgvMovie":
-        return cls(
-            co_cd=str(data.get("coCd", "")),
-            movie_no=str(data.get("movNo", "")),
-            movie_name=str(data.get("movNm", "")),
-            running_time_min=data.get("scnBssTm"),
-            rating_cd=data.get("cratgClsCd"),
-            booking_rate=data.get("atktRate"),
-            poster_file_name=data.get("i320Fnm"),
-        )
 
 
 class CgvApiClient:
@@ -130,8 +83,9 @@ class CgvTheaterClient(CgvApiClient):
             return self._site_no
 
         theaters = await self.fetch_regn_list()
-        matches = [theater for theater in theaters if self.site_name in theater.site_name]
-        exact = [theater for theater in matches if theater.site_name == self.site_name]
+        query = normalize_name(self.site_name)
+        matches = [theater for theater in theaters if query in normalize_name(theater.site_name)]
+        exact = [theater for theater in matches if normalize_name(theater.site_name) == query]
         if exact:
             matches = exact
 
@@ -147,12 +101,11 @@ class CgvTheaterClient(CgvApiClient):
     async def fetch_scheduled_dates(self) -> list[str]:
         site_no = await self._resolve_site_no()
         result = await self._get_json(
-            "/api/v1/booking/searchSiteScnscYmdListBySite",
-            {"coCd": self._co_cd, "siteNo": site_no},
+            path="/api/v1/booking/searchSiteScnscYmdListBySite",
+            params={"coCd": self._co_cd, "siteNo": site_no},
         )
 
         data = result.get("data") or []
-
         if not isinstance(data, list):
             raise CgvApiError("scheduled-date response data is not a list")
 
@@ -171,7 +124,6 @@ class CgvTheaterClient(CgvApiClient):
         )
 
         data = result.get("data") or []
-
         if not isinstance(data, list):
             raise CgvApiError("showtime response data is not a list")
 
@@ -223,11 +175,11 @@ if __name__ == "__main__":
 
                 theater_client = CgvTheaterClient(context.request, site_name=SAMPLE_THEATER_NAME)
                 dates = await theater_client.fetch_scheduled_dates()
-                print(f"[fetch_scheduled_dates] {SAMPLE_THEATER_NAME}: {dates[:5]}")
+                print(f"[fetch_scheduled_dates] {SAMPLE_THEATER_NAME}: {dates}")
 
                 entries = await theater_client.fetch_showtime_entries()
                 print(f"[fetch_showtime_entries] 가장 가까운 날짜 상영 회차: {len(entries)}개")
-                for entry in entries[:5]:
+                for entry in entries:
                     print(
                         " -",
                         entry.get("prodNm"),
