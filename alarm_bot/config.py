@@ -8,7 +8,9 @@ DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
-TARGETS_FILE = os.path.join(os.path.dirname(__file__), "targets.json")
+# data/cgv인 이유는 지금 target 데이터가 전부 CGV 극장/등급 형식이라서 — 다른
+# provider가 생기면 그때 data/<provider>로 나뉜다.
+TARGETS_FILE = os.path.join(os.path.dirname(__file__), "../data/cgv/targets.json")
 
 # targets.json이 없을 때 최초 1회 생성에 쓰이는 기본 감시 대상.
 # site_name은 CGV 극장 이름(CgvTheaterClient가 여기서 site_no를 내부적으로 찾음),
