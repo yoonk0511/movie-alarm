@@ -1,28 +1,17 @@
 import logging
-from contextlib import asynccontextmanager
 from datetime import datetime
 
 import discord
 from discord import app_commands
-from playwright.async_api import async_playwright
 
-from cgv_api import fetch_regn_list, fetch_showtime_entries
-from cgv_open_push.config import (
-    BOOKING_PAGE_URL,
-    CO_CD,
-    LOG_FILE,
-    USER_AGENT,
-)
-from targets_store import add_target, load_targets, remove_target
-from utils import get_base_url
+from cgv_open_push.cgv_api import CgvApiClient, CgvTheaterClient
+from logging_setup import configure
 
 from .config import DISCORD_BOT_TOKEN, DISCORD_GUILD_ID
+from .targets_store import add_target, load_targets, remove_target
+from .utils import cgv_browser_session
 
-logging.basicConfig(
-    handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8")],
-    level=logging.INFO,
-    format="%(asctime)s:%(levelname)s:%(message)s",
-)
+configure()
 
 GUILD = discord.Object(id=int(DISCORD_GUILD_ID)) if DISCORD_GUILD_ID else None
 
@@ -31,38 +20,20 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
 
-@asynccontextmanager
-async def cgv_browser_session():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent=USER_AGENT,
-            locale="ko-KR",
-            base_url=get_base_url(BOOKING_PAGE_URL),
-        )
-        page = await context.new_page()
-        await page.goto(BOOKING_PAGE_URL, timeout=30000, wait_until="networkidle")
-        try:
-            yield context.request
-        finally:
-            await browser.close()
-
-
 async def search_theaters(query):
-    async with cgv_browser_session() as request:
-        result = await fetch_regn_list(request, CO_CD)
+    async with cgv_browser_session() as page:
+        theaters = await CgvApiClient(page).fetch_regn_list()
 
-    matches = []
-    for region in result.get("data") or []:
-        for site in region.get("siteList") or []:
-            if query in site["siteNm"]:
-                matches.append({"site_no": site["siteNo"], "site_name": site["siteNm"]})
-    return matches
+    return [
+        {"site_no": theater.site_no, "site_name": theater.site_name}
+        for theater in theaters
+        if query in theater.site_name
+    ]
 
 
-async def fetch_showtimes_for_site(site_no, scn_ymd=None):
-    async with cgv_browser_session() as request:
-        return await fetch_showtime_entries(request, CO_CD, site_no, scn_ymd)
+async def fetch_showtimes_for_site(site_name, scn_ymd=None):
+    async with cgv_browser_session() as page:
+        return await CgvTheaterClient(page, site_name=site_name).fetch_showtime_entries(scn_ymd)
 
 
 def _distinct_sorted(entries, field):
@@ -219,7 +190,7 @@ async def add_cmd(interaction: discord.Interaction, theater: str, date: str = ""
 
     site = matches[0]
     try:
-        entries = await fetch_showtimes_for_site(site["site_no"], date or None)
+        entries = await fetch_showtimes_for_site(site["site_name"], date or None)
     except Exception as e:
         logging.exception("fetch_showtimes_for_site failed")
         await interaction.followup.send(f"상영 스케줄 조회 실패: {e}")

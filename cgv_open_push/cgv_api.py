@@ -170,6 +170,7 @@ class CgvTheaterClient(CgvApiClient):
 if __name__ == "__main__":
     # 실제 CGV API에 붙는 수동 스모크 테스트. pytest 목(mock) 테스트는
     # tests/test_cgv_api.py 참고 — 여기는 눈으로 직접 확인하고 싶을 때 실행.
+    # 패키지 relative import를 쓰기 때문에 `python -m cgv_open_push.cgv_api`로 실행할 것.
     import asyncio
 
     from playwright.async_api import async_playwright

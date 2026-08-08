@@ -1,12 +1,10 @@
 import json
-import logging
 import os
 import re
-from datetime import datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-import requests
+from logging_setup import log_error
 
 
 def normalize_name(name: str) -> str:
@@ -22,50 +20,6 @@ def get_base_url(url: str) -> str:
         raise ValueError(f"invalid BOOKING_PAGE_URL: {url}")
 
     return f"{parsed.scheme}://{parsed.netloc}"
-
-
-def log_info(message: str) -> None:
-    print(
-        f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {message}",
-        flush=True,
-    )
-    logging.info(message)
-
-
-def log_error(message: str) -> None:
-    print(
-        f"[{datetime.now():%Y-%m-%d %H:%M:%S}] ERROR: {message}",
-        flush=True,
-    )
-    logging.error(message)
-
-
-def log_exception(message: str) -> None:
-    """except 블록 안에서만 호출: 콘솔에는 메시지만 찍고, 로그 파일에는 트레이스백까지 남긴다.
-    운영 중 원인 불명 에러가 나면 메시지만으로는 어디서 터졌는지 알 수 없어서, 실제
-    예외 상황(재시도 경로)에서는 log_error 대신 이걸 쓴다."""
-    print(
-        f"[{datetime.now():%Y-%m-%d %H:%M:%S}] ERROR: {message}",
-        flush=True,
-    )
-    logging.exception(message)
-
-
-def send_discord(webhook_url: str, content: str) -> None:
-    if not webhook_url:
-        log_error("DISCORD_WEBHOOK_URL not set, skipping notification")
-        return
-
-    try:
-        response = requests.post(
-            webhook_url,
-            json={"content": content},
-            timeout=10,
-        )
-        response.raise_for_status()
-
-    except requests.RequestException as error:
-        log_error(f"failed to send discord message: {error}")
 
 
 def load_state(

@@ -4,8 +4,10 @@ from typing import Any
 
 from playwright.async_api import Page
 
+from logging_setup import log_info
+
 from .cgv_api import CgvTheaterClient
-from .utils import build_signature, log_info
+from .utils import build_signature
 
 
 @dataclass

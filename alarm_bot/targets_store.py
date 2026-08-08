@@ -2,7 +2,7 @@ import json
 import os
 import uuid
 
-from .config import DEFAULT_TARGETS, TARGETS_FILE
+from cgv_open_push.config import DEFAULT_TARGETS, TARGETS_FILE
 
 
 def load_targets():
