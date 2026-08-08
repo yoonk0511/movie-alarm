@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from bot import search_theaters
+from alarm_bot.bot import search_theaters
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_NETWORK_TESTS") != "1",
@@ -11,7 +11,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_search_theaters_context_request_returns_matches():
+def test_search_theaters_returns_matches():
     matches = asyncio.run(search_theaters("용산"))
     site_nos = {m["site_no"] for m in matches}
     assert "0013" in site_nos
