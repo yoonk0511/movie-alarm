@@ -2,7 +2,8 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from cgv_open_push.cgv_api import CgvTheaterClient
-from cgv_open_push.monitor import Target, TargetRegistry
+
+from monitoring.monitor import Target, TargetRegistry
 
 
 def run(coro):
