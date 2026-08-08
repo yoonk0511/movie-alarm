@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from alarm_bot.bot import search_theaters
+from alarm_bot.utils import search_theaters
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_NETWORK_TESTS") != "1",
