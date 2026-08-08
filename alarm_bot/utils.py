@@ -2,7 +2,10 @@ from contextlib import asynccontextmanager
 
 from playwright.async_api import async_playwright
 
+from cgv_open_push.cgv_api import CgvApiClient, CgvTheaterClient
 from cgv_open_push.config import BOOKING_PAGE_URL, USER_AGENT
+
+ALL_MOVIES = "__전체_영화__"  # 실제 영화 제목과 안 겹치는 sentinel 값
 
 
 @asynccontextmanager
@@ -18,3 +21,30 @@ async def cgv_browser_session():
             yield page
         finally:
             await browser.close()
+
+
+async def search_theaters(query):
+    async with cgv_browser_session() as page:
+        theaters = await CgvApiClient(page).fetch_regn_list()
+
+    return [
+        {"site_no": theater.site_no, "site_name": theater.site_name}
+        for theater in theaters
+        if query in theater.site_name
+    ]
+
+
+async def fetch_showtimes_for_site(site_name, scn_ymd=None):
+    async with cgv_browser_session() as page:
+        return await CgvTheaterClient(page, site_name=site_name).fetch_showtime_entries(scn_ymd)
+
+
+def distinct_sorted(entries, field):
+    return sorted({str(entry[field]) for entry in entries if entry.get(field)})
+
+
+def describe_target(t):
+    movie_desc = t.get("movie") or "전체 영화"
+    date_desc = ", ".join(t["date"]) if t.get("date") else "전체 날짜"
+    grade_desc = ", ".join(t["grades"]) if t["grades"] else "등급 무관"
+    return f"{movie_desc} / {date_desc} / {grade_desc}"

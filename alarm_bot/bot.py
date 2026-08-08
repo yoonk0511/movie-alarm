@@ -4,12 +4,17 @@ from datetime import datetime
 import discord
 from discord import app_commands
 
-from cgv_open_push.cgv_api import CgvApiClient, CgvTheaterClient
 from logging_setup import configure
 
 from .config import DISCORD_BOT_TOKEN, DISCORD_GUILD_ID
 from .targets_store import add_target, load_targets, remove_target
-from .utils import cgv_browser_session
+from .utils import (
+    ALL_MOVIES,
+    describe_target,
+    distinct_sorted,
+    fetch_showtimes_for_site,
+    search_theaters,
+)
 
 configure()
 
@@ -18,33 +23,6 @@ GUILD = discord.Object(id=int(DISCORD_GUILD_ID)) if DISCORD_GUILD_ID else None
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
-
-
-async def search_theaters(query):
-    async with cgv_browser_session() as page:
-        theaters = await CgvApiClient(page).fetch_regn_list()
-
-    return [
-        {"site_no": theater.site_no, "site_name": theater.site_name}
-        for theater in theaters
-        if query in theater.site_name
-    ]
-
-
-async def fetch_showtimes_for_site(site_name, scn_ymd=None):
-    async with cgv_browser_session() as page:
-        return await CgvTheaterClient(page, site_name=site_name).fetch_showtime_entries(scn_ymd)
-
-
-def _distinct_sorted(entries, field):
-    return sorted({str(entry[field]) for entry in entries if entry.get(field)})
-
-
-def describe_target(t):
-    movie_desc = t.get("movie") or "전체 영화"
-    date_desc = ", ".join(t["date"]) if t.get("date") else "전체 날짜"
-    grade_desc = ", ".join(t["grades"]) if t["grades"] else "등급 무관"
-    return f"{movie_desc} / {date_desc} / {grade_desc}"
 
 
 @tree.command(
@@ -76,9 +54,6 @@ async def search_cmd(interaction: discord.Interaction, query: str):
         return
     lines = ["**검색 결과**"] + [f"- {m['site_name']} ({m['site_no']})" for m in matches[:15]]
     await interaction.followup.send("\n".join(lines))
-
-
-ALL_MOVIES = "__전체_영화__"  # 실제 영화 제목과 안 겹치는 sentinel 값
 
 
 async def _finish_add(interaction, site, movie, date, grades, *, edit: bool):
@@ -121,7 +96,7 @@ class MovieSelect(discord.ui.Select):
         self.site = site
         self.date = date
         self.entries = entries
-        movies = _distinct_sorted(entries, "prodNm")[:24]
+        movies = distinct_sorted(entries, "prodNm")[:24]
         options = [discord.SelectOption(label="전체 영화", value=ALL_MOVIES)]
         options += [discord.SelectOption(label=movie, value=movie) for movie in movies]
         super().__init__(
@@ -135,7 +110,7 @@ class MovieSelect(discord.ui.Select):
             if not movie
             else [e for e in self.entries if str(e.get("prodNm")) == movie]
         )
-        grades = _distinct_sorted(relevant, "tcscnsGradNm")
+        grades = distinct_sorted(relevant, "tcscnsGradNm")
 
         if not grades:
             await _finish_add(interaction, self.site, movie, self.date, [], edit=True)
