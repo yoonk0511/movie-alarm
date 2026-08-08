@@ -42,7 +42,7 @@ def _distinct_sorted(entries, field):
 
 def describe_target(t):
     movie_desc = t.get("movie") or "전체 영화"
-    date_desc = t.get("date") or "전체 날짜"
+    date_desc = ", ".join(t["date"]) if t.get("date") else "전체 날짜"
     grade_desc = ", ".join(t["grades"]) if t["grades"] else "등급 무관"
     return f"{movie_desc} / {date_desc} / {grade_desc}"
 
@@ -57,7 +57,7 @@ async def targets_cmd(interaction: discord.Interaction):
         return
     lines = ["**현재 감시 대상**"]
     for t in targets:
-        lines.append(f"- [{t['id']}] {t['site_name']} ({t['site_no']}) - {describe_target(t)}")
+        lines.append(f"- [{t['id']}] {t['site_name']} - {describe_target(t)}")
     await interaction.response.send_message("\n".join(lines))
 
 
@@ -82,11 +82,11 @@ ALL_MOVIES = "__전체_영화__"  # 실제 영화 제목과 안 겹치는 sentin
 
 
 async def _finish_add(interaction, site, movie, date, grades, *, edit: bool):
-    changed, target = add_target(site["site_no"], site["site_name"], grades, movie=movie, date=date)
-    verb = "추가/변경됨" if changed else "변경 없음 (이미 동일하게 감시 중)"
-    content = (
-        f"**{target['site_name']}** ({target['site_no']}) - {describe_target(target)} [{verb}]"
+    changed, target = add_target(
+        site["site_name"], grades, movie=movie, date=[date] if date else []
     )
+    verb = "추가/변경됨" if changed else "변경 없음 (이미 동일하게 감시 중)"
+    content = f"**{target['site_name']}** ({target['id']}) - {describe_target(target)} [{verb}]"
     if edit:
         await interaction.response.edit_message(content=content, view=None)
     else:
