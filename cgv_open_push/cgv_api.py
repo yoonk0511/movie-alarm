@@ -1,3 +1,17 @@
+"""CGV 예매 API 백엔드. monitor.py(폴링 감시)와 bot.py(디스코드 명령)가 이 모듈을
+통해서만 CGV와 통신한다.
+
+- CgvApiClient: 극장 무관 조회.
+  fetch_regn_list()  -> 전체 극장 목록
+  fetch_movie_list() -> 전체 상영작 목록 (예매율 순)
+- CgvTheaterClient(site_name): 극장 하나의 스케줄 조회. site_no는 첫 호출 때
+  site_name으로 내부적으로 찾아서 캐시한다.
+  fetch_scheduled_dates()          -> 그 극장의 상영일 목록
+  fetch_showtimes(scn_ymd)         -> 그 날짜의 상영 회차 목록
+  fetch_showtime_entries(scn_ymd?) -> scn_ymd 생략 시 가장 가까운 상영일 기준
+- 실패(HTTP 에러/JSON 파싱 실패/예상과 다른 응답 구조)는 전부 CgvApiError로 통일.
+"""
+
 import json
 from typing import Any
 from urllib.parse import urlencode
@@ -8,6 +22,9 @@ from cgv_models import CgvMovie, CgvTheater
 from config import CO_CD
 from utils import normalize_name
 
+# page.evaluate(fn, arg)는 fn 소스를 그대로 실행하고 arg는 JSON 직렬화해서 넘길
+# 뿐이라 문자열 조립·eval() 인젝션 경로가 없다 (url도 urlencode를 거쳐서 옴).
+# APIRequestContext 대신 이 방식을 쓰는 이유는 클래스 docstring 참고.
 _FETCH_JS = """async (url) => {
     const response = await fetch(url, { headers: { "Accept": "application/json" } });
     const body = await response.text();
