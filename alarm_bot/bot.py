@@ -7,16 +7,16 @@ from discord import app_commands
 from playwright.async_api import async_playwright
 
 from cgv_api import fetch_regn_list, fetch_showtime_entries
-from config import (
+from cgv_open_push.config import (
     BOOKING_PAGE_URL,
     CO_CD,
-    DISCORD_BOT_TOKEN,
-    DISCORD_GUILD_ID,
     LOG_FILE,
     USER_AGENT,
 )
 from targets_store import add_target, load_targets, remove_target
 from utils import get_base_url
+
+from .config import DISCORD_BOT_TOKEN, DISCORD_GUILD_ID
 
 logging.basicConfig(
     handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8")],

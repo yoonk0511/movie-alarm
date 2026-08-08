@@ -4,9 +4,10 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
 
+# DISCORD_BOT_TOKEN/DISCORD_GUILD_ID(대화형 슬래시 커맨드 봇 전용 설정)는
+# alarm_bot/config.py로 옮겼다 — 여기는 CGV provider와, 그 provider가 만든 변경을
+# 알림으로 내보내는 데 쓰는 값(DISCORD_WEBHOOK_URL)만 둔다.
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
-DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
-DISCORD_GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "")
 
 CO_CD = "A420"
 

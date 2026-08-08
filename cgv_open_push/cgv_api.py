@@ -18,9 +18,9 @@ from urllib.parse import urlencode
 
 from playwright.async_api import Page
 
-from cgv_models import CgvMovie, CgvTheater
-from config import CO_CD
-from utils import normalize_name
+from .cgv_models import CgvMovie, CgvTheater
+from .config import CO_CD
+from .utils import normalize_name
 
 # page.evaluate(fn, arg)는 fn 소스를 그대로 실행하고 arg는 JSON 직렬화해서 넘길
 # 뿐이라 문자열 조립·eval() 인젝션 경로가 없다 (url도 urlencode를 거쳐서 옴).
@@ -173,7 +173,8 @@ if __name__ == "__main__":
     import asyncio
 
     from playwright.async_api import async_playwright
-    from config import BOOKING_PAGE_URL
+
+    from .config import BOOKING_PAGE_URL
 
     SAMPLE_THEATER_NAME = "용산 아이파크몰"
 

@@ -1,6 +1,12 @@
 import pytest
 
-from utils import build_signature, format_date, format_time, get_base_url, normalize_name
+from cgv_open_push.utils import (
+    build_signature,
+    format_date,
+    format_time,
+    get_base_url,
+    normalize_name,
+)
 
 
 def test_get_base_url_strips_path_and_query():

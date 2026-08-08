@@ -8,7 +8,7 @@ from playwright.async_api import (
     async_playwright,
 )
 
-from config import (
+from .config import (
     BOOKING_PAGE_URL,
     BROWSER_REFRESH_INTERVAL_SEC,
     DISCORD_WEBHOOK_URL,
@@ -17,9 +17,9 @@ from config import (
     STATE_FILE,
     USER_AGENT,
 )
-from monitor import TargetRegistry
-from targets_store import load_targets
-from utils import (
+from .monitor import TargetRegistry
+from .targets_store import load_targets
+from .utils import (
     format_date,
     format_time,
     load_state,

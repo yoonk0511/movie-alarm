@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=ec2-user
-WorkingDirectory=/home/ec2-user/project/cgv_open_push
-ExecStart=/home/ec2-user/project/.venv/bin/python run.py
+WorkingDirectory=/home/ec2-user/project
+ExecStart=/home/ec2-user/project/.venv/bin/python -m cgv_open_push.run
 Restart=on-failure
 RestartSec=10
 StartLimitIntervalSec=300
