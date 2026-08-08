@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from cgv_api import CgvApiClient, CgvApiError, CgvTheaterClient
-from cgv_models import CgvMovie, CgvTheater
+from cgv_open_push.cgv_api import CgvApiClient, CgvApiError, CgvTheaterClient
+from cgv_open_push.cgv_models import CgvMovie, CgvTheater
 
 
 def run(coro):

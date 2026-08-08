@@ -1,4 +1,4 @@
-import targets_store
+from alarm_bot import targets_store
 
 
 def _isolate(tmp_path, monkeypatch, default_targets=None):

@@ -18,9 +18,9 @@ from urllib.parse import urlencode
 
 from playwright.async_api import Page
 
-from cgv_models import CgvMovie, CgvTheater
-from config import CO_CD
-from utils import normalize_name
+from .cgv_models import CgvMovie, CgvTheater
+from .config import CO_CD
+from .utils import normalize_name
 
 # page.evaluate(fn, arg)는 fn 소스를 그대로 실행하고 arg는 JSON 직렬화해서 넘길
 # 뿐이라 문자열 조립·eval() 인젝션 경로가 없다 (url도 urlencode를 거쳐서 옴).
@@ -170,10 +170,12 @@ class CgvTheaterClient(CgvApiClient):
 if __name__ == "__main__":
     # 실제 CGV API에 붙는 수동 스모크 테스트. pytest 목(mock) 테스트는
     # tests/test_cgv_api.py 참고 — 여기는 눈으로 직접 확인하고 싶을 때 실행.
+    # 패키지 relative import를 쓰기 때문에 `python -m cgv_open_push.cgv_api`로 실행할 것.
     import asyncio
 
     from playwright.async_api import async_playwright
-    from config import BOOKING_PAGE_URL
+
+    from .config import BOOKING_PAGE_URL
 
     SAMPLE_THEATER_NAME = "용산 아이파크몰"
 

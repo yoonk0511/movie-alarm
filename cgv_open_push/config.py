@@ -4,10 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
 
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
-DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
-DISCORD_GUILD_ID = os.environ.get("DISCORD_GUILD_ID", "")
-
+# discord 관련 설정(토큰/길드ID/웹훅)은 전부 alarm_bot/config.py로 옮겼다 —
+# 여기는 CGV provider 전용 값만 둔다.
 CO_CD = "A420"
 
 # targets.json이 없을 때 최초 1회 생성에 쓰이는 기본 감시 대상.
@@ -32,7 +30,6 @@ BROWSER_REFRESH_INTERVAL_SEC = 1800  # 30분마다 페이지 새로고침 (Cloud
 
 STATE_FILE = os.path.join(os.path.dirname(__file__), "state.json")
 TARGETS_FILE = os.path.join(os.path.dirname(__file__), "targets.json")
-LOG_FILE = os.path.join(os.path.dirname(__file__), "cgv-monitor.log")
 
 BOOKING_PAGE_URL = "https://cgv.co.kr/cnm/movieBook/cinema"
 

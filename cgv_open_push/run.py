@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import time
 from typing import Any
 
@@ -8,37 +7,27 @@ from playwright.async_api import (
     async_playwright,
 )
 
-from config import (
+from alarm_bot.config import DISCORD_WEBHOOK_URL
+from alarm_bot.notify import send_discord
+from alarm_bot.targets_store import load_targets
+from logging_setup import configure, log_exception, log_info
+
+from .config import (
     BOOKING_PAGE_URL,
     BROWSER_REFRESH_INTERVAL_SEC,
-    DISCORD_WEBHOOK_URL,
-    LOG_FILE,
     POLL_INTERVAL_SEC,
     STATE_FILE,
     USER_AGENT,
 )
-from monitor import TargetRegistry
-from targets_store import load_targets
-from utils import (
+from .monitor import TargetRegistry
+from .utils import (
     format_date,
     format_time,
     load_state,
-    log_exception,
-    log_info,
     save_state,
-    send_discord,
 )
 
-logging.basicConfig(
-    handlers=[
-        logging.FileHandler(
-            LOG_FILE,
-            encoding="utf-8",
-        )
-    ],
-    level=logging.INFO,
-    format="%(asctime)s:%(levelname)s:%(message)s",
-)
+configure()
 
 
 async def open_booking_page(page: Page) -> None:

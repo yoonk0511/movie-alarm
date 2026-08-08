@@ -4,8 +4,10 @@ from typing import Any
 
 from playwright.async_api import Page
 
-from cgv_api import CgvTheaterClient
-from utils import build_signature, log_info
+from logging_setup import log_info
+
+from .cgv_api import CgvTheaterClient
+from .utils import build_signature
 
 
 @dataclass
@@ -131,7 +133,7 @@ if __name__ == "__main__":
     # (pytest 목 테스트는 tests/test_monitor.py 참고).
     from playwright.async_api import async_playwright
 
-    from config import BOOKING_PAGE_URL
+    from .config import BOOKING_PAGE_URL
 
     SAMPLE_TARGETS = [
         {
