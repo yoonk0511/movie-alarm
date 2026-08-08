@@ -7,7 +7,6 @@ from discord import app_commands
 from playwright.async_api import async_playwright
 
 from cgv_api import fetch_regn_list, fetch_showtime_entries
-
 from config import (
     BOOKING_PAGE_URL,
     CO_CD,

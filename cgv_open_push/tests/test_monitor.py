@@ -116,7 +116,7 @@ def test_check_excludes_entries_that_do_not_match_and_skips_dates():
 
 
 def test_from_dict_builds_theater_client_from_site_name():
-    request = MagicMock()
+    page = MagicMock()
     data = {
         "id": "t1",
         "site_name": "용산아이파크몰",
@@ -125,7 +125,7 @@ def test_from_dict_builds_theater_client_from_site_name():
         "grades": ["아이맥스"],
     }
 
-    target = Target.from_dict(data, request)
+    target = Target.from_dict(data, page)
 
     assert target.id == "t1"
     assert target.site_name == "용산아이파크몰"

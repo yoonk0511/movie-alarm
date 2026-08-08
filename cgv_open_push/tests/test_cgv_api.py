@@ -1,4 +1,5 @@
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -11,74 +12,65 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def make_response(
+def make_evaluate_result(
     payload=None, *, ok=True, status=200, url="https://cgv.co.kr/api", json_error=False
 ):
-    response = MagicMock()
-    response.ok = ok
-    response.status = status
-    response.url = url
-    if json_error:
-        response.json = AsyncMock(side_effect=ValueError("bad json"))
-    else:
-        response.json = AsyncMock(return_value=payload)
-    return response
+    body = "not-json" if json_error else json.dumps(payload)
+    return {"ok": ok, "status": status, "url": url, "body": body}
 
 
-def make_request(*responses):
-    request = MagicMock()
-    request.get = AsyncMock(side_effect=list(responses))
-    return request
+def make_page(*results):
+    page = MagicMock()
+    page.evaluate = AsyncMock(side_effect=list(results))
+    return page
+
+
+def called_url(page):
+    args, _kwargs = page.evaluate.call_args
+    return args[1]
 
 
 def test_get_json_returns_parsed_dict_on_success():
-    request = make_request(make_response({"data": []}))
-    client = CgvApiClient(request, co_cd="A420")
+    page = make_page(make_evaluate_result({"data": []}))
+    client = CgvApiClient(page, co_cd="A420")
 
     result = run(client._get_json("/some/path", {"a": "b"}))
 
     assert result == {"data": []}
-    request.get.assert_awaited_once_with(
-        "/some/path",
-        params={"a": "b"},
-        headers={"Accept": "application/json"},
-        timeout=30_000,
-    )
+    assert called_url(page) == "/some/path?a=b"
 
 
 def test_get_json_raises_on_non_ok_response():
-    request = make_request(make_response(ok=False, status=500, url="https://x"))
-    client = CgvApiClient(request, co_cd="A420")
+    page = make_page(make_evaluate_result(ok=False, status=500, url="https://x"))
+    client = CgvApiClient(page, co_cd="A420")
 
     with pytest.raises(CgvApiError, match="status=500"):
         run(client._get_json("/some/path", {}))
 
 
 def test_get_json_raises_on_invalid_json():
-    request = make_request(make_response(json_error=True))
-    client = CgvApiClient(request, co_cd="A420")
+    page = make_page(make_evaluate_result(json_error=True))
+    client = CgvApiClient(page, co_cd="A420")
 
     with pytest.raises(CgvApiError, match="invalid JSON"):
         run(client._get_json("/some/path", {}))
 
 
 def test_get_json_raises_on_non_dict_response():
-    request = make_request(make_response(["not", "a", "dict"]))
-    client = CgvApiClient(request, co_cd="A420")
+    page = make_page(make_evaluate_result(["not", "a", "dict"]))
+    client = CgvApiClient(page, co_cd="A420")
 
     with pytest.raises(CgvApiError, match="unexpected CGV API response type"):
         run(client._get_json("/some/path", {}))
 
 
 def test_fetch_regn_list_calls_expected_endpoint():
-    request = make_request(make_response({"data": []}))
-    client = CgvApiClient(request, co_cd="A420")
+    page = make_page(make_evaluate_result({"data": []}))
+    client = CgvApiClient(page, co_cd="A420")
 
     run(client.fetch_regn_list())
 
-    args, kwargs = request.get.call_args
-    assert args[0] == "/api/v1/booking/searchRegnList"
-    assert kwargs["params"] == {"coCd": "A420"}
+    assert called_url(page) == "/api/v1/booking/searchRegnList?coCd=A420"
 
 
 def test_fetch_regn_list_flattens_regions_into_theaters():
@@ -94,8 +86,8 @@ def test_fetch_regn_list_flattens_regions_into_theaters():
             {"siteList": [{"coCd": "A420", "siteNo": "0056", "siteNm": "강남"}]},
         ]
     }
-    request = make_request(make_response(payload))
-    client = CgvApiClient(request, co_cd="A420")
+    page = make_page(make_evaluate_result(payload))
+    client = CgvApiClient(page, co_cd="A420")
 
     theaters = run(client.fetch_regn_list())
 
@@ -107,14 +99,14 @@ def test_fetch_regn_list_flattens_regions_into_theaters():
 
 
 def test_fetch_movie_list_calls_expected_endpoint():
-    request = make_request(make_response({"data": []}))
-    client = CgvApiClient(request, co_cd="A420")
+    page = make_page(make_evaluate_result({"data": []}))
+    client = CgvApiClient(page, co_cd="A420")
 
     run(client.fetch_movie_list())
 
-    args, kwargs = request.get.call_args
-    assert args[0] == "/api/v1/booking/searchAtktTopPostrList"
-    assert kwargs["params"] == {"coCd": "A420", "movNm": "", "div": "", "attrCd": ""}
+    assert (
+        called_url(page) == "/api/v1/booking/searchAtktTopPostrList?coCd=A420&movNm=&div=&attrCd="
+    )
 
 
 def test_fetch_movie_list_parses_entries_into_movies():
@@ -133,8 +125,8 @@ def test_fetch_movie_list_parses_entries_into_movies():
             "garbage",
         ]
     }
-    request = make_request(make_response(payload))
-    client = CgvApiClient(request, co_cd="A420")
+    page = make_page(make_evaluate_result(payload))
+    client = CgvApiClient(page, co_cd="A420")
 
     movies = run(client.fetch_movie_list())
 
@@ -146,10 +138,10 @@ def test_fetch_movie_list_parses_entries_into_movies():
     assert movie.booking_rate == "51.46"
 
 
-def make_theater_client(request, *, site_no="0013", co_cd="A420", site_name="용산아이파크몰"):
+def make_theater_client(page, *, site_no="0013", co_cd="A420", site_name="용산아이파크몰"):
     """site_no가 이미 알려진 상태로 시작하는 테스트용 헬퍼 — _resolve_site_no의
     이름 검색 로직 자체는 아래 test_resolve_site_no_* 에서 따로 검증한다."""
-    client = CgvTheaterClient(request, site_name=site_name, co_cd=co_cd)
+    client = CgvTheaterClient(page, site_name=site_name, co_cd=co_cd)
     client._site_no = site_no
     return client
 
@@ -163,8 +155,8 @@ def test_resolve_site_no_finds_exact_name_match():
         {"coCd": "A420", "siteNo": "0013", "siteNm": "용산아이파크몰"},
         {"coCd": "A420", "siteNo": "P013", "siteNm": "씨네드쉐프 용산"},
     )
-    request = make_request(make_response(payload))
-    client = CgvTheaterClient(request, site_name="용산아이파크몰", co_cd="A420")
+    page = make_page(make_evaluate_result(payload))
+    client = CgvTheaterClient(page, site_name="용산아이파크몰", co_cd="A420")
 
     site_no = run(client._resolve_site_no())
 
@@ -175,8 +167,8 @@ def test_resolve_site_no_ignores_whitespace_differences():
     payload = make_regn_list_payload(
         {"coCd": "A420", "siteNo": "P013", "siteNm": "씨네드쉐프 용산"},
     )
-    request = make_request(make_response(payload))
-    client = CgvTheaterClient(request, site_name="씨네드쉐프용산", co_cd="A420")
+    page = make_page(make_evaluate_result(payload))
+    client = CgvTheaterClient(page, site_name="씨네드쉐프용산", co_cd="A420")
 
     site_no = run(client._resolve_site_no())
 
@@ -185,19 +177,19 @@ def test_resolve_site_no_ignores_whitespace_differences():
 
 def test_resolve_site_no_caches_result_across_calls():
     payload = make_regn_list_payload({"coCd": "A420", "siteNo": "0013", "siteNm": "용산아이파크몰"})
-    request = make_request(make_response(payload))
-    client = CgvTheaterClient(request, site_name="용산아이파크몰", co_cd="A420")
+    page = make_page(make_evaluate_result(payload))
+    client = CgvTheaterClient(page, site_name="용산아이파크몰", co_cd="A420")
 
     run(client._resolve_site_no())
     run(client._resolve_site_no())
 
-    request.get.assert_awaited_once()
+    page.evaluate.assert_awaited_once()
 
 
 def test_resolve_site_no_raises_when_no_match():
     payload = make_regn_list_payload({"coCd": "A420", "siteNo": "0056", "siteNm": "강남"})
-    request = make_request(make_response(payload))
-    client = CgvTheaterClient(request, site_name="없는극장", co_cd="A420")
+    page = make_page(make_evaluate_result(payload))
+    client = CgvTheaterClient(page, site_name="없는극장", co_cd="A420")
 
     with pytest.raises(CgvApiError, match="no theater matches"):
         run(client._resolve_site_no())
@@ -208,18 +200,18 @@ def test_resolve_site_no_raises_when_ambiguous():
         {"coCd": "A420", "siteNo": "0013", "siteNm": "용산아이파크몰"},
         {"coCd": "A420", "siteNo": "P013", "siteNm": "씨네드쉐프 용산"},
     )
-    request = make_request(make_response(payload))
-    client = CgvTheaterClient(request, site_name="용산", co_cd="A420")
+    page = make_page(make_evaluate_result(payload))
+    client = CgvTheaterClient(page, site_name="용산", co_cd="A420")
 
     with pytest.raises(CgvApiError, match="ambiguous theater name"):
         run(client._resolve_site_no())
 
 
 def test_fetch_scheduled_dates_extracts_scn_ymd_values():
-    request = make_request(
-        make_response({"data": [{"scnYmd": "20260810"}, {"scnYmd": "20260811"}]})
+    page = make_page(
+        make_evaluate_result({"data": [{"scnYmd": "20260810"}, {"scnYmd": "20260811"}]})
     )
-    client = make_theater_client(request)
+    client = make_theater_client(page)
 
     dates = run(client.fetch_scheduled_dates())
 
@@ -227,10 +219,12 @@ def test_fetch_scheduled_dates_extracts_scn_ymd_values():
 
 
 def test_fetch_scheduled_dates_skips_malformed_rows():
-    request = make_request(
-        make_response({"data": [{"scnYmd": "20260810"}, {"noYmd": True}, "not-a-dict", None]})
+    page = make_page(
+        make_evaluate_result(
+            {"data": [{"scnYmd": "20260810"}, {"noYmd": True}, "not-a-dict", None]}
+        )
     )
-    client = make_theater_client(request)
+    client = make_theater_client(page)
 
     dates = run(client.fetch_scheduled_dates())
 
@@ -238,32 +232,28 @@ def test_fetch_scheduled_dates_skips_malformed_rows():
 
 
 def test_fetch_scheduled_dates_raises_when_data_not_list():
-    request = make_request(make_response({"data": {"not": "a list"}}))
-    client = make_theater_client(request)
+    page = make_page(make_evaluate_result({"data": {"not": "a list"}}))
+    client = make_theater_client(page)
 
     with pytest.raises(CgvApiError, match="not a list"):
         run(client.fetch_scheduled_dates())
 
 
 def test_fetch_showtimes_filters_non_dict_entries_and_sends_expected_params():
-    request = make_request(make_response({"data": [{"prodNm": "듄"}, "garbage"]}))
-    client = make_theater_client(request)
+    page = make_page(make_evaluate_result({"data": [{"prodNm": "듄"}, "garbage"]}))
+    client = make_theater_client(page)
 
     entries = run(client.fetch_showtimes("20260810"))
 
     assert entries == [{"prodNm": "듄"}]
-    args, kwargs = request.get.call_args
-    assert kwargs["params"] == {
-        "coCd": "A420",
-        "siteNo": "0013",
-        "scnYmd": "20260810",
-        "rtctlScopCd": "08",
-    }
+    assert called_url(page) == (
+        "/api/v1/booking/searchMovScnInfo?coCd=A420&siteNo=0013&scnYmd=20260810&rtctlScopCd=08"
+    )
 
 
 def test_fetch_showtimes_raises_when_data_not_list():
-    request = make_request(make_response({"data": "not-a-list"}))
-    client = make_theater_client(request)
+    page = make_page(make_evaluate_result({"data": "not-a-list"}))
+    client = make_theater_client(page)
 
     with pytest.raises(CgvApiError, match="not a list"):
         run(client.fetch_showtimes("20260810"))

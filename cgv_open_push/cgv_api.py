@@ -1,10 +1,18 @@
+import json
 from typing import Any
+from urllib.parse import urlencode
 
-from playwright.async_api import APIRequestContext
+from playwright.async_api import Page
 
 from cgv_models import CgvMovie, CgvTheater
 from config import CO_CD
 from utils import normalize_name
+
+_FETCH_JS = """async (url) => {
+    const response = await fetch(url, { headers: { "Accept": "application/json" } });
+    const body = await response.text();
+    return { ok: response.ok, status: response.status, url: response.url, body };
+}"""
 
 
 class CgvApiError(RuntimeError):
@@ -13,42 +21,51 @@ class CgvApiError(RuntimeError):
 
 class CgvApiClient:
     """CGV 예매 API 공용 클라이언트. site_no와 무관한 조회(극장 목록, 전체 상영작
-    목록)를 담당한다. 극장별 스케줄 조회는 CgvTheaterClient가 상속해서 처리한다."""
+    목록)를 담당한다. 극장별 스케줄 조회는 CgvTheaterClient가 상속해서 처리한다.
 
-    def __init__(self, request: APIRequestContext, co_cd: str = CO_CD) -> None:
-        self._request = request
+    API 호출은 Playwright의 APIRequestContext가 아니라 실제 페이지 안에서
+    page.evaluate()로 fetch()를 실행해서 한다 — 페이지 자체가 만드는 요청과 똑같은
+    모양(같은 세션/쿠키/출처)이라 WAF가 봇으로 구분하기 더 어렵다."""
+
+    def __init__(self, page: Page, co_cd: str = CO_CD) -> None:
+        self._page = page
         self._co_cd = co_cd
 
     async def _get_json(self, path: str, params: dict[str, str]) -> dict[str, Any]:
-        response = await self._request.get(
-            path,
-            params=params,
-            headers={"Accept": "application/json"},
-            timeout=30_000,
-        )
+        url = f"{path}?{urlencode(params)}"
+        result = await self._page.evaluate(_FETCH_JS, url)
 
-        if not response.ok:
+        if not result["ok"]:
             raise CgvApiError(
-                f"CGV API request failed: status={response.status}, url={response.url}"
+                f"CGV API request failed: status={result['status']}, url={result['url']}"
             )
 
         try:
-            result = await response.json()
-        except Exception as error:
-            raise CgvApiError(f"CGV API returned invalid JSON: url={response.url}") from error
+            data = json.loads(result["body"])
+        except json.JSONDecodeError as error:
+            raise CgvApiError(f"CGV API returned invalid JSON: url={result['url']}") from error
 
-        if not isinstance(result, dict):
-            raise CgvApiError(f"unexpected CGV API response type: {type(result).__name__}")
+        if not isinstance(data, dict):
+            raise CgvApiError(f"unexpected CGV API response type: {type(data).__name__}")
 
-        return result
+        return data
+
+    async def _get_data_list(self, path: str, params: dict[str, str], what: str) -> list[Any]:
+        result = await self._get_json(path, params)
+        data = result.get("data") or []
+        if not isinstance(data, list):
+            raise CgvApiError(f"{what} response data is not a list")
+        return data
 
     async def fetch_regn_list(self) -> list[CgvTheater]:
         """지역별 극장 목록 (극장 검색용). 응답은 지역(region) 단위로 묶여 있고 각
         지역 안에 siteList가 있어서, 평탄화해서 CgvTheater 리스트로 반환한다."""
-        result = await self._get_json("/api/v1/booking/searchRegnList", {"coCd": self._co_cd})
+        data = await self._get_data_list(
+            "/api/v1/booking/searchRegnList", {"coCd": self._co_cd}, what="region-list"
+        )
 
         theaters: list[CgvTheater] = []
-        for region in result.get("data") or []:
+        for region in data:
             if not isinstance(region, dict):
                 continue
             for site in region.get("siteList") or []:
@@ -59,12 +76,11 @@ class CgvApiClient:
 
     async def fetch_movie_list(self) -> list[CgvMovie]:
         """CGV 전체 상영작 목록 (극장 무관, 예매율 순)."""
-        result = await self._get_json(
+        data = await self._get_data_list(
             "/api/v1/booking/searchAtktTopPostrList",
             {"coCd": self._co_cd, "movNm": "", "div": "", "attrCd": ""},
+            what="movie-list",
         )
-
-        data = result.get("data") or []
 
         return [CgvMovie.from_api(movie) for movie in data if isinstance(movie, dict)]
 
@@ -73,8 +89,8 @@ class CgvTheaterClient(CgvApiClient):
     """특정 극장 하나의 상영 스케줄 조회. site_no 대신 극장 이름으로 생성하면,
     site_no는 실제로 조회가 필요해지는 첫 호출 때 내부적으로 찾는다."""
 
-    def __init__(self, request: APIRequestContext, site_name: str, co_cd: str = CO_CD) -> None:
-        super().__init__(request, co_cd)
+    def __init__(self, page: Page, site_name: str, co_cd: str = CO_CD) -> None:
+        super().__init__(page, co_cd)
         self.site_name = site_name
         self._site_no: str | None = None
 
@@ -100,20 +116,17 @@ class CgvTheaterClient(CgvApiClient):
 
     async def fetch_scheduled_dates(self) -> list[str]:
         site_no = await self._resolve_site_no()
-        result = await self._get_json(
-            path="/api/v1/booking/searchSiteScnscYmdListBySite",
-            params={"coCd": self._co_cd, "siteNo": site_no},
+        data = await self._get_data_list(
+            "/api/v1/booking/searchSiteScnscYmdListBySite",
+            {"coCd": self._co_cd, "siteNo": site_no},
+            what="scheduled-date",
         )
-
-        data = result.get("data") or []
-        if not isinstance(data, list):
-            raise CgvApiError("scheduled-date response data is not a list")
 
         return [str(row["scnYmd"]) for row in data if isinstance(row, dict) and row.get("scnYmd")]
 
     async def fetch_showtimes(self, scn_ymd: str) -> list[dict[str, Any]]:
         site_no = await self._resolve_site_no()
-        result = await self._get_json(
+        data = await self._get_data_list(
             "/api/v1/booking/searchMovScnInfo",
             {
                 "coCd": self._co_cd,
@@ -121,11 +134,8 @@ class CgvTheaterClient(CgvApiClient):
                 "scnYmd": scn_ymd,
                 "rtctlScopCd": "08",
             },
+            what="showtime",
         )
-
-        data = result.get("data") or []
-        if not isinstance(data, list):
-            raise CgvApiError("showtime response data is not a list")
 
         return [entry for entry in data if isinstance(entry, dict)]
 
@@ -146,23 +156,24 @@ if __name__ == "__main__":
     import asyncio
 
     from playwright.async_api import async_playwright
-
     from config import BOOKING_PAGE_URL
-    from utils import get_base_url
 
     SAMPLE_THEATER_NAME = "용산 아이파크몰"
 
     async def demo() -> None:
         async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=True)
-            context = await browser.new_context(base_url=get_base_url(BOOKING_PAGE_URL))
+            # headless=True는 CGV WAF에 헤드리스로 탐지되어 403이 나서 False로 둔다
+            # (일반 브라우저는 막히지 않는 것 확인함). 서버 배포 시엔 Xvfb 등 가상
+            # 디스플레이가 필요하다.
+            browser = await playwright.chromium.launch(headless=False)
+            context = await browser.new_context()
             page = await context.new_page()
             # CGV는 Cloudflare 봇 차단이 있어서, API를 바로 호출하기 전에 실제
             # 페이지를 한 번 열어 세션(쿠키)을 확보해야 한다.
             await page.goto(BOOKING_PAGE_URL, timeout=30_000, wait_until="networkidle")
 
             try:
-                client = CgvApiClient(context.request)
+                client = CgvApiClient(page)
                 theaters = await client.fetch_regn_list()
                 print(f"[fetch_regn_list] 극장 수: {len(theaters)}")
                 for theater in theaters[:5]:
@@ -173,7 +184,7 @@ if __name__ == "__main__":
                 for movie in movies[:5]:
                     print(" -", movie.movie_name, f"{movie.booking_rate}%")
 
-                theater_client = CgvTheaterClient(context.request, site_name=SAMPLE_THEATER_NAME)
+                theater_client = CgvTheaterClient(page, site_name=SAMPLE_THEATER_NAME)
                 dates = await theater_client.fetch_scheduled_dates()
                 print(f"[fetch_scheduled_dates] {SAMPLE_THEATER_NAME}: {dates}")
 

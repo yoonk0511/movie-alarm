@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
-from playwright.async_api import APIRequestContext
+from playwright.async_api import Page
 
 from cgv_api import CgvTheaterClient
 from utils import build_signature, log_info
@@ -23,14 +23,14 @@ class Target:
     previous_signatures: set[str] = field(default_factory=set)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], request: APIRequestContext) -> "Target":
+    def from_dict(cls, data: dict[str, Any], page: Page) -> "Target":
         return cls(
             id=str(data["id"]),
             site_name=str(data["site_name"]),
             movie=str(data.get("movie") or ""),
             dates={str(d) for d in (data.get("date") or [])},
             grades={str(g) for g in data["grades"]},
-            theater=CgvTheaterClient(request, site_name=str(data["site_name"])),
+            theater=CgvTheaterClient(page, site_name=str(data["site_name"])),
         )
 
     def matches_date(self, scn_ymd: str) -> bool:
@@ -91,8 +91,8 @@ class TargetRegistry:
     계산되지 않고 유지된다. targets.json이 바뀔 때마다(추가/삭제) 최신 목록과
     동기화하고, 방금 새로 생긴 대상인지도 여기서 판단한다."""
 
-    def __init__(self, request: APIRequestContext) -> None:
-        self._request = request
+    def __init__(self, page: Page) -> None:
+        self._page = page
         self._targets: dict[str, Target] = {}
 
     def sync(self, target_dicts: list[dict[str, Any]]) -> list[tuple[Target, bool]]:
@@ -109,7 +109,7 @@ class TargetRegistry:
             target_id = str(data["id"])
             is_new = target_id not in self._targets
             if is_new:
-                self._targets[target_id] = Target.from_dict(data, self._request)
+                self._targets[target_id] = Target.from_dict(data, self._page)
             result.append((self._targets[target_id], is_new))
         return result
 
@@ -132,7 +132,6 @@ if __name__ == "__main__":
     from playwright.async_api import async_playwright
 
     from config import BOOKING_PAGE_URL
-    from utils import get_base_url
 
     SAMPLE_TARGETS = [
         {
@@ -153,13 +152,14 @@ if __name__ == "__main__":
 
     async def demo() -> None:
         async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=True)
-            context = await browser.new_context(base_url=get_base_url(BOOKING_PAGE_URL))
+            # headless=True는 CGV WAF에 헤드리스로 탐지되어 403이 나서 False로 둔다.
+            browser = await playwright.chromium.launch(headless=False)
+            context = await browser.new_context()
             page = await context.new_page()
             await page.goto(BOOKING_PAGE_URL, timeout=30_000, wait_until="networkidle")
 
             try:
-                registry = TargetRegistry(context.request)
+                registry = TargetRegistry(page)
 
                 print("-- 첫 실행 (여러 대상 동시 처리, 기준선만 잡음) --")
                 for target, is_new in registry.sync(SAMPLE_TARGETS):
@@ -198,7 +198,7 @@ if __name__ == "__main__":
                         "date": [],
                         "grades": [],
                     },
-                    context.request,
+                    page,
                 )
                 try:
                     await bad_target.check(baseline_only=True)

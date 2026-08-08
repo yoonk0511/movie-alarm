@@ -4,7 +4,6 @@ import time
 from typing import Any
 
 from playwright.async_api import (
-    BrowserContext,
     Page,
     async_playwright,
 )
@@ -23,7 +22,6 @@ from targets_store import load_targets
 from utils import (
     format_date,
     format_time,
-    get_base_url,
     load_state,
     log_exception,
     log_info,
@@ -126,13 +124,12 @@ async def check_all_targets(
 
 
 async def run_monitor(
-    context: BrowserContext,
     page: Page,
 ) -> None:
     state = load_state(STATE_FILE)
     first_run = not state
 
-    registry = TargetRegistry(context.request)
+    registry = TargetRegistry(page)
     # 시작할 때 한 번 동기화해서 Target들을 만든 다음 저장된 signature를 복원한다.
     # 이후 폴링에서는 registry가 같은 Target 인스턴스를 재사용하므로(site_no 캐시,
     # 누적된 signature 유지), 다시 복원할 필요가 없다.
@@ -185,26 +182,24 @@ async def run_monitor(
 
 
 async def run() -> None:
-    base_url = get_base_url(BOOKING_PAGE_URL)
-
     async with async_playwright() as playwright:
+        # headless=True는 CGV WAF에 헤드리스로 탐지되어 403이 나서 False로 둔다
+        # (일반 브라우저는 안 막히는 것 확인함). EC2 등 화면 없는 서버에 배포할 땐
+        # Xvfb 같은 가상 디스플레이 없이는 이 프로세스가 바로 실패한다 — 아직 EC2엔
+        # 반영 안 함, systemd로 배포하기 전에 Xvfb부터 준비할 것.
         browser = await playwright.chromium.launch(
-            headless=True,
+            headless=False,
         )
 
         context = await browser.new_context(
             user_agent=USER_AGENT,
             locale="ko-KR",
-            base_url=base_url,
         )
 
         page = await context.new_page()
 
         try:
-            await run_monitor(
-                context=context,
-                page=page,
-            )
+            await run_monitor(page=page)
 
         except KeyboardInterrupt:
             log_info("cgv-monitor stopped by user")
