@@ -10,14 +10,13 @@ from playwright.async_api import (
 from alarm_bot.config import DISCORD_WEBHOOK_URL
 from alarm_bot.notify import send_discord
 from alarm_bot.targets_store import load_targets
+from cgv_open_push.config import BOOKING_PAGE_URL, USER_AGENT
 from logging_setup import configure, log_exception, log_info
 
 from .config import (
-    BOOKING_PAGE_URL,
     BROWSER_REFRESH_INTERVAL_SEC,
     POLL_INTERVAL_SEC,
     STATE_FILE,
-    USER_AGENT,
 )
 from .monitor import TargetRegistry
 from .utils import (
