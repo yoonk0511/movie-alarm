@@ -1,4 +1,10 @@
-from monitoring.utils import build_signature, format_date, format_time
+from monitoring.utils import (
+    build_signature,
+    format_date,
+    format_time,
+    load_showtimes,
+    save_showtimes,
+)
 
 
 def test_format_time_inserts_colon():
@@ -19,14 +25,35 @@ def test_format_date_passes_through_wrong_length():
 
 def test_build_signature_joins_fields_in_order():
     entry = {
-        "scnYmd": "20260804",
-        "siteNo": "0013",
-        "scnsNm": "1관",
-        "scnsrtTm": "1830",
-        "prodNm": "테스트 영화",
+        "provider": "cgv",
+        "date": "20260804",
+        "site_no": "0013",
+        "screen": "1관",
+        "time": "1830",
+        "movie": "테스트 영화",
     }
-    assert build_signature(entry) == "20260804|0013|1관|1830|테스트 영화"
+    assert build_signature(entry) == "cgv|20260804|0013|1관|1830|테스트 영화"
 
 
 def test_build_signature_defaults_missing_fields_to_empty_string():
-    assert build_signature({}) == "||||"
+    assert build_signature({}) == "|||||"
+
+
+def test_save_and_load_showtimes_round_trip(tmp_path):
+    showtimes_file = str(tmp_path / "showtimes.json")
+    entries = [{"provider": "cgv", "site_name": "용산아이파크몰", "movie": "듄"}]
+
+    save_showtimes(showtimes_file, entries, fetched_at="2026-08-14T00:00:00+00:00")
+
+    assert load_showtimes(showtimes_file) == entries
+
+
+def test_load_showtimes_returns_empty_list_when_file_missing(tmp_path):
+    assert load_showtimes(str(tmp_path / "nope.json")) == []
+
+
+def test_load_showtimes_returns_empty_list_on_invalid_format(tmp_path):
+    showtimes_file = tmp_path / "showtimes.json"
+    showtimes_file.write_text("[]", encoding="utf-8")
+
+    assert load_showtimes(str(showtimes_file)) == []

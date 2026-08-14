@@ -8,3 +8,8 @@ BROWSER_REFRESH_INTERVAL_SEC = 1800  # 30분마다 페이지 새로고침 (Cloud
 # data/cgv인 이유는 지금 감시 대상이 전부 CGV라서 — 다른 provider가 생기면
 # 그때 data/<provider>로 나뉜다.
 STATE_FILE = os.path.join(os.path.dirname(__file__), "../data/cgv/state.json")
+
+# fetch.py가 쓰고 match.py가 읽는 정규화된 회차 스냅샷. 이 파일이 fetch(브라우저로
+# CGV 긁기)와 match(target 조건 비교) 두 프로세스를 잇는 유일한 연결점이다 — 서로
+# 직접 통신하지 않으므로 한쪽이 죽어도 다른 쪽은 마지막 스냅샷으로 계속 동작한다.
+SHOWTIMES_FILE = os.path.join(os.path.dirname(__file__), "../data/cgv/showtimes.json")

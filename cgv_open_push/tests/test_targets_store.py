@@ -140,6 +140,7 @@ def test_load_targets_backfills_missing_fields_for_legacy_entries(tmp_path, monk
             "id": "용산아이파크몰",
             "movie": "",
             "date": [],
+            "provider": "cgv",
         }
     ]
 

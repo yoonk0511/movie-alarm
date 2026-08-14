@@ -26,5 +26,6 @@ DEFAULT_TARGETS = [
         "movie": "",
         "date": [],
         "grades": ["아이맥스", "4DX", "SCREENX"],
+        "provider": "cgv",
     },
 ]

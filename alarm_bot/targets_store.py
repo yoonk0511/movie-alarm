@@ -15,6 +15,7 @@ def load_targets():
         t.setdefault("id", t["site_name"])
         t.setdefault("movie", "")
         t.setdefault("date", [])
+        t.setdefault("provider", "cgv")
         if isinstance(t["date"], str):
             # 예전엔 date가 단일 문자열이었다. 빈 문자열은 "날짜 무관", 값이 있으면
             # 그 날짜 하나짜리 리스트로 취급해서 새 스키마로 옮겨온다.
@@ -27,18 +28,24 @@ def save_targets(targets):
         json.dump(targets, f, ensure_ascii=False, indent=2)
 
 
-def add_target(site_name, grades, movie="", date=None):
-    """감시 대상을 추가한다. 같은 (site_name, movie) 조합이 이미 있으면 grades와
-    date를 각각 합집합으로 합친다 (movie만 식별자, grades/date는 둘 다 누적되는
-    필터). date는 감시할 날짜(YYYYMMDD) 리스트 — 비우면 날짜 무관. site_no는
-    저장하지 않는다 — CgvTheaterClient가 site_name으로 그때그때 알아서 찾는다.
+def add_target(site_name, grades, movie="", date=None, provider="cgv"):
+    """감시 대상을 추가한다. 같은 (provider, site_name, movie) 조합이 이미 있으면
+    grades와 date를 각각 합집합으로 합친다 (movie만 식별자, grades/date는 둘 다
+    누적되는 필터). date는 감시할 날짜(YYYYMMDD) 리스트 — 비우면 날짜 무관.
+    provider는 나중에 CGV 말고 다른 곳이 생겼을 때 구분용 — 지금은 항상 "cgv".
+    site_no는 저장하지 않는다 — CgvTheaterClient가 site_name으로 그때그때 알아서
+    찾는다.
     Returns (changed, target).
     """
     date = set(date or [])
 
     targets = load_targets()
     for t in targets:
-        if t["site_name"] == site_name and t.get("movie", "") == movie:
+        if (
+            t["site_name"] == site_name
+            and t.get("movie", "") == movie
+            and t.get("provider", "cgv") == provider
+        ):
             merged_grades = sorted(set(t["grades"]) | set(grades))
             merged_dates = sorted(set(t.get("date") or []) | date)
             changed = merged_grades != sorted(t["grades"]) or merged_dates != sorted(
@@ -56,6 +63,7 @@ def add_target(site_name, grades, movie="", date=None):
         "movie": movie,
         "date": sorted(date),
         "grades": sorted(set(grades)),
+        "provider": provider,
     }
     targets.append(new_target)
     save_targets(targets)
