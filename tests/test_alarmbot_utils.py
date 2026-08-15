@@ -31,15 +31,12 @@ async def fake_browser_session(page=None):
 # --- search_theaters / fetch_showtimes_for_site (CgvApiClient/CgvTheaterClient wiring) ---
 
 
-def test_search_theaters_filters_by_query_substring(monkeypatch):
-    theaters = [
-        CgvTheater(co_cd="A420", site_no="0013", site_name="용산아이파크몰"),
-        CgvTheater(co_cd="A420", site_no="0056", site_name="강남"),
+def test_search_theaters_filters_cached_list_by_query_substring(monkeypatch):
+    cached = [
+        {"site_no": "0013", "site_name": "용산아이파크몰"},
+        {"site_no": "0056", "site_name": "강남"},
     ]
-    fake_client = MagicMock()
-    fake_client.fetch_regn_list = AsyncMock(return_value=theaters)
-    monkeypatch.setattr(utils, "cgv_browser_session", fake_browser_session)
-    monkeypatch.setattr(utils, "CgvApiClient", lambda page: fake_client)
+    monkeypatch.setattr(utils, "load_theaters", lambda file: cached)
 
     matches = run(utils.search_theaters("용산"))
 
@@ -47,12 +44,27 @@ def test_search_theaters_filters_by_query_substring(monkeypatch):
 
 
 def test_search_theaters_returns_empty_when_no_match(monkeypatch):
+    monkeypatch.setattr(
+        utils, "load_theaters", lambda file: [{"site_no": "0013", "site_name": "용산아이파크몰"}]
+    )
+
+    assert run(utils.search_theaters("없는극장")) == []
+
+
+def test_search_theaters_falls_back_to_live_fetch_when_cache_empty(monkeypatch):
+    theaters = [
+        CgvTheater(co_cd="A420", site_no="0013", site_name="용산아이파크몰"),
+        CgvTheater(co_cd="A420", site_no="0056", site_name="강남"),
+    ]
     fake_client = MagicMock()
-    fake_client.fetch_regn_list = AsyncMock(return_value=[])
+    fake_client.fetch_regn_list = AsyncMock(return_value=theaters)
+    monkeypatch.setattr(utils, "load_theaters", lambda file: [])
     monkeypatch.setattr(utils, "cgv_browser_session", fake_browser_session)
     monkeypatch.setattr(utils, "CgvApiClient", lambda page: fake_client)
 
-    assert run(utils.search_theaters("없는극장")) == []
+    matches = run(utils.search_theaters("용산"))
+
+    assert matches == [{"site_no": "0013", "site_name": "용산아이파크몰"}]
 
 
 def test_fetch_showtimes_for_site_uses_site_name_not_site_no(monkeypatch):

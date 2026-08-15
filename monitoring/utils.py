@@ -140,6 +140,50 @@ def save_showtimes(
             pass
 
 
+def load_theaters(
+    theaters_file: str,
+) -> list[dict[str, Any]]:
+    """fetch.py가 하루 한 번 갱신하는 극장 목록 캐시를 읽는다. 아직 한 번도 안
+    돌았거나 파일이 깨졌으면 빈 리스트."""
+    if not os.path.exists(theaters_file):
+        return []
+
+    try:
+        with open(theaters_file, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except (OSError, json.JSONDecodeError) as error:
+        log_error(f"failed to load theaters file: {error}")
+        return []
+
+    if not isinstance(data, list):
+        log_error("invalid theaters file format")
+        return []
+
+    return [theater for theater in data if isinstance(theater, dict)]
+
+
+def save_theaters(
+    theaters_file: str,
+    theaters: list[dict[str, Any]],
+) -> None:
+    temporary_file = f"{theaters_file}.tmp"
+
+    try:
+        with open(temporary_file, "w", encoding="utf-8") as file:
+            json.dump(theaters, file, ensure_ascii=False, indent=2)
+
+        os.replace(temporary_file, theaters_file)
+
+    except OSError as error:
+        log_error(f"failed to save theaters file: {error}")
+
+        try:
+            if os.path.exists(temporary_file):
+                os.remove(temporary_file)
+        except OSError:
+            pass
+
+
 def format_time(hhmm: str) -> str:
     if len(hhmm) < 4:
         return hhmm

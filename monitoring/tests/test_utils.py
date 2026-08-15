@@ -3,7 +3,9 @@ from monitoring.utils import (
     format_date,
     format_time,
     load_showtimes,
+    load_theaters,
     save_showtimes,
+    save_theaters,
 )
 
 
@@ -57,3 +59,23 @@ def test_load_showtimes_returns_empty_list_on_invalid_format(tmp_path):
     showtimes_file.write_text("[]", encoding="utf-8")
 
     assert load_showtimes(str(showtimes_file)) == []
+
+
+def test_save_and_load_theaters_round_trip(tmp_path):
+    theaters_file = str(tmp_path / "theaters.json")
+    theaters = [{"site_no": "0013", "site_name": "용산아이파크몰"}]
+
+    save_theaters(theaters_file, theaters)
+
+    assert load_theaters(theaters_file) == theaters
+
+
+def test_load_theaters_returns_empty_list_when_file_missing(tmp_path):
+    assert load_theaters(str(tmp_path / "nope.json")) == []
+
+
+def test_load_theaters_returns_empty_list_on_invalid_format(tmp_path):
+    theaters_file = tmp_path / "theaters.json"
+    theaters_file.write_text('{"not": "a list"}', encoding="utf-8")
+
+    assert load_theaters(str(theaters_file)) == []

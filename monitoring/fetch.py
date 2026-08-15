@@ -8,13 +8,19 @@ from playwright.async_api import Page, async_playwright
 from alarm_bot.config import DISCORD_WEBHOOK_URL
 from alarm_bot.notify import send_discord
 from alarm_bot.targets_store import load_targets
-from cgv_open_push.cgv_api import CgvTheaterClient
+from cgv_open_push.cgv_api import CgvApiClient, CgvTheaterClient
 from cgv_open_push.cgv_models import CgvShowtime
 from cgv_open_push.config import BOOKING_PAGE_URL, USER_AGENT
 from logging_setup import configure, log_exception, log_info
 
-from .config import BROWSER_REFRESH_INTERVAL_SEC, POLL_INTERVAL_SEC, SHOWTIMES_FILE
-from .utils import save_showtimes
+from .config import (
+    BROWSER_REFRESH_INTERVAL_SEC,
+    POLL_INTERVAL_SEC,
+    SHOWTIMES_FILE,
+    THEATER_LIST_REFRESH_INTERVAL_SEC,
+    THEATERS_FILE,
+)
+from .utils import save_showtimes, save_theaters
 
 configure()
 
@@ -55,6 +61,15 @@ async def fetch_all_showtimes(page: Page) -> list[dict]:
     return all_entries
 
 
+async def refresh_theaters_cache(page: Page) -> None:
+    """bot의 /search, /add가 매번 브라우저를 새로 안 띄우고 즉시 응답할 수
+    있도록 극장 목록을 캐시한다. showtimes와 달리 극장 목록은 거의 안 바뀌니
+    이 함수는 THEATER_LIST_REFRESH_INTERVAL_SEC 주기로만 불린다."""
+    theaters = await CgvApiClient(page).fetch_regn_list()
+    save_theaters(THEATERS_FILE, [asdict(theater) for theater in theaters])
+    log_info(f"refreshed theater list cache ({len(theaters)}개)")
+
+
 async def open_booking_page(page: Page) -> None:
     await page.goto(BOOKING_PAGE_URL, timeout=30_000, wait_until="networkidle")
 
@@ -75,11 +90,13 @@ async def recover_browser_session(page: Page) -> bool:
 
 async def run_fetch_loop(page: Page) -> None:
     await open_booking_page(page)
+    await refresh_theaters_cache(page)
 
     log_info("cgv-fetcher started, browser session established")
     send_discord(webhook_url=DISCORD_WEBHOOK_URL, content="cgv-fetcher started...")
 
     last_refresh = time.monotonic()
+    last_theater_refresh = time.monotonic()
 
     while True:
         try:
@@ -88,6 +105,10 @@ async def run_fetch_loop(page: Page) -> None:
                 await reload_booking_page(page)
                 last_refresh = time.monotonic()
                 log_info("browser session refreshed")
+
+            if time.monotonic() - last_theater_refresh >= THEATER_LIST_REFRESH_INTERVAL_SEC:
+                await refresh_theaters_cache(page)
+                last_theater_refresh = time.monotonic()
 
             entries = await fetch_all_showtimes(page)
             save_showtimes(
