@@ -1,5 +1,5 @@
 [Unit]
-Description=cgv-open-push monitor (Discord 알림 폴링)
+Description=cgv-matcher (스냅샷을 target 조건과 비교해서 Discord 알림)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=ec2-user
 WorkingDirectory=/home/ec2-user/project
-ExecStart=/home/ec2-user/project/.venv/bin/python -m monitoring.run
+ExecStart=/home/ec2-user/project/.venv/bin/python -m monitoring.match
 Restart=on-failure
 RestartSec=10
 StartLimitIntervalSec=300

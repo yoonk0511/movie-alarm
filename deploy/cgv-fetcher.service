@@ -1,0 +1,17 @@
+[Unit]
+Description=cgv-fetcher (브라우저로 CGV 회차 긁어서 스냅샷 저장)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/project
+ExecStart=/home/ec2-user/project/.venv/bin/python -m monitoring.fetch
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target
