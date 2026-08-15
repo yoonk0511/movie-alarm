@@ -2,7 +2,7 @@ import os
 
 POLL_INTERVAL_SEC = 300  # 5분마다 새 날짜/스케줄 확인
 BROWSER_REFRESH_INTERVAL_SEC = 1800  # 30분마다 페이지 새로고침 (Cloudflare 세션 갱신)
-THEATER_LIST_REFRESH_INTERVAL_SEC = 86400  # 극장 목록은 거의 안 바뀌니 하루 한 번
+CATALOG_REFRESH_INTERVAL_SEC = 86400  # 극장/영화 목록은 거의 안 바뀌니 하루 한 번
 
 # 이 monitor 프로세스 자신의 폴링 상태(감지한 signature)를 담는다. logs/와
 # 같은 패턴으로, 런타임 데이터는 코드 소유권과 무관하게 최상위 data/에 모은다.
@@ -15,7 +15,8 @@ STATE_FILE = os.path.join(os.path.dirname(__file__), "../data/cgv/state.json")
 # 직접 통신하지 않으므로 한쪽이 죽어도 다른 쪽은 마지막 스냅샷으로 계속 동작한다.
 SHOWTIMES_FILE = os.path.join(os.path.dirname(__file__), "../data/cgv/showtimes.json")
 
-# fetch.py가 하루 한 번 갱신하는 극장 목록 캐시. bot의 /search, /add가 이걸
-# 읽어서 즉시 응답한다 — 매번 브라우저를 새로 띄워 CGV를 라이브로 조회하면
-# 느리고, Discord에 극장 이름을 오타 없이 정확히 칠 필요도 없어진다.
+# fetch.py가 하루 한 번 갱신하는 극장/영화 목록 캐시. bot의 /search, /add가
+# 이걸 읽어서 즉시 응답한다 — 매번 브라우저를 새로 띄워 CGV를 라이브로 조회하면
+# 느리고, Discord에 이름을 오타 없이 정확히 칠 필요도 없어진다(자동완성).
 THEATERS_FILE = os.path.join(os.path.dirname(__file__), "../data/cgv/theaters.json")
+MOVIES_FILE = os.path.join(os.path.dirname(__file__), "../data/cgv/movies.json")

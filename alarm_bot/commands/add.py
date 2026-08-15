@@ -10,6 +10,7 @@ from ..utils import (
     describe_target,
     distinct_sorted,
     fetch_showtimes_for_site,
+    search_movies,
     search_theaters,
 )
 
@@ -87,12 +88,30 @@ class MovieSelectView(discord.ui.View):
         self.add_item(MovieSelect(site, date, entries))
 
 
+async def theater_autocomplete(interaction: discord.Interaction, current: str):
+    if not current:
+        return []
+    matches = await search_theaters(current)
+    return [
+        app_commands.Choice(name=m["site_name"], value=m["site_name"]) for m in matches[:25]
+    ]
+
+
+async def movie_autocomplete(interaction: discord.Interaction, current: str):
+    if not current:
+        return []
+    matches = await search_movies(current)
+    return [app_commands.Choice(name=name, value=name) for name in matches[:25]]
+
+
 @tree.command(name="add", description="감시 대상 추가", guild=GUILD)
 @app_commands.describe(
-    theater="추가할 극장 이름 (검색 결과가 하나로 좁혀지는 이름이어야 함)",
+    theater="추가할 극장 이름 (자동완성에서 선택 권장)",
+    movie="감시할 영화 (비우면 상영 회차 목록에서 고름, 자동완성에서 선택 권장)",
     date="감시할 날짜 YYYYMMDD (비우면 가장 가까운 상영일 기준으로 영화/등급 목록을 보여줌)",
 )
-async def add_cmd(interaction: discord.Interaction, theater: str, date: str = ""):
+@app_commands.autocomplete(theater=theater_autocomplete, movie=movie_autocomplete)
+async def add_cmd(interaction: discord.Interaction, theater: str, movie: str = "", date: str = ""):
     if date and not (len(date) == 8 and date.isdigit()):
         await interaction.response.send_message(
             "date는 YYYYMMDD 형식(8자리 숫자)으로 입력해주세요.",
@@ -130,7 +149,21 @@ async def add_cmd(interaction: discord.Interaction, theater: str, date: str = ""
         return
 
     if not entries:
-        await _finish_add(interaction, site, "", date, [], edit=False)
+        await _finish_add(interaction, site, movie, date, [], edit=False)
+        return
+
+    if movie:
+        relevant = [e for e in entries if movie in str(e.get("prodNm", ""))]
+        grades = distinct_sorted(relevant, "tcscnsGradNm")
+
+        if not grades:
+            await _finish_add(interaction, site, movie, date, [], edit=False)
+            return
+
+        view = GradeSelectView(site=site, movie=movie, date=date, grades=grades)
+        await interaction.followup.send(
+            f"**{site['site_name']}** ({site['site_no']}) - 감시할 등급을 선택하세요:", view=view
+        )
         return
 
     view = MovieSelectView(site=site, date=date, entries=entries)

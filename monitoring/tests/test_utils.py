@@ -2,10 +2,10 @@ from monitoring.utils import (
     build_signature,
     format_date,
     format_time,
+    load_json_list,
     load_showtimes,
-    load_theaters,
+    save_json_list,
     save_showtimes,
-    save_theaters,
 )
 
 
@@ -61,21 +61,21 @@ def test_load_showtimes_returns_empty_list_on_invalid_format(tmp_path):
     assert load_showtimes(str(showtimes_file)) == []
 
 
-def test_save_and_load_theaters_round_trip(tmp_path):
-    theaters_file = str(tmp_path / "theaters.json")
-    theaters = [{"site_no": "0013", "site_name": "용산아이파크몰"}]
+def test_save_and_load_json_list_round_trip(tmp_path):
+    file = str(tmp_path / "theaters.json")
+    items = [{"site_no": "0013", "site_name": "용산아이파크몰"}]
 
-    save_theaters(theaters_file, theaters)
+    save_json_list(file, items)
 
-    assert load_theaters(theaters_file) == theaters
-
-
-def test_load_theaters_returns_empty_list_when_file_missing(tmp_path):
-    assert load_theaters(str(tmp_path / "nope.json")) == []
+    assert load_json_list(file) == items
 
 
-def test_load_theaters_returns_empty_list_on_invalid_format(tmp_path):
-    theaters_file = tmp_path / "theaters.json"
-    theaters_file.write_text('{"not": "a list"}', encoding="utf-8")
+def test_load_json_list_returns_empty_list_when_file_missing(tmp_path):
+    assert load_json_list(str(tmp_path / "nope.json")) == []
 
-    assert load_theaters(str(theaters_file)) == []
+
+def test_load_json_list_returns_empty_list_on_invalid_format(tmp_path):
+    file = tmp_path / "theaters.json"
+    file.write_text('{"not": "a list"}', encoding="utf-8")
+
+    assert load_json_list(str(file)) == []

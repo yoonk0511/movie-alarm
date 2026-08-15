@@ -15,12 +15,13 @@ from logging_setup import configure, log_exception, log_info
 
 from .config import (
     BROWSER_REFRESH_INTERVAL_SEC,
+    CATALOG_REFRESH_INTERVAL_SEC,
+    MOVIES_FILE,
     POLL_INTERVAL_SEC,
     SHOWTIMES_FILE,
-    THEATER_LIST_REFRESH_INTERVAL_SEC,
     THEATERS_FILE,
 )
-from .utils import save_showtimes, save_theaters
+from .utils import save_json_list, save_showtimes
 
 configure()
 
@@ -61,13 +62,19 @@ async def fetch_all_showtimes(page: Page) -> list[dict]:
     return all_entries
 
 
-async def refresh_theaters_cache(page: Page) -> None:
-    """bot의 /search, /add가 매번 브라우저를 새로 안 띄우고 즉시 응답할 수
-    있도록 극장 목록을 캐시한다. showtimes와 달리 극장 목록은 거의 안 바뀌니
-    이 함수는 THEATER_LIST_REFRESH_INTERVAL_SEC 주기로만 불린다."""
-    theaters = await CgvApiClient(page).fetch_regn_list()
-    save_theaters(THEATERS_FILE, [asdict(theater) for theater in theaters])
-    log_info(f"refreshed theater list cache ({len(theaters)}개)")
+async def refresh_catalog_cache(page: Page) -> None:
+    """bot의 /search, /add가 매번 브라우저를 새로 안 띄우고 즉시 응답(자동완성
+    포함)할 수 있도록 극장 목록과 전체 상영작 목록을 캐시한다. showtimes와 달리
+    둘 다 거의 안 바뀌니 이 함수는 CATALOG_REFRESH_INTERVAL_SEC 주기로만 불린다."""
+    client = CgvApiClient(page)
+
+    theaters = await client.fetch_regn_list()
+    save_json_list(THEATERS_FILE, [asdict(theater) for theater in theaters])
+
+    movies = await client.fetch_movie_list()
+    save_json_list(MOVIES_FILE, [asdict(movie) for movie in movies])
+
+    log_info(f"refreshed catalog cache (극장 {len(theaters)}개, 영화 {len(movies)}개)")
 
 
 async def open_booking_page(page: Page) -> None:
@@ -90,13 +97,13 @@ async def recover_browser_session(page: Page) -> bool:
 
 async def run_fetch_loop(page: Page) -> None:
     await open_booking_page(page)
-    await refresh_theaters_cache(page)
+    await refresh_catalog_cache(page)
 
     log_info("cgv-fetcher started, browser session established")
     send_discord(webhook_url=DISCORD_WEBHOOK_URL, content="cgv-fetcher started...")
 
     last_refresh = time.monotonic()
-    last_theater_refresh = time.monotonic()
+    last_catalog_refresh = time.monotonic()
 
     while True:
         try:
@@ -106,9 +113,9 @@ async def run_fetch_loop(page: Page) -> None:
                 last_refresh = time.monotonic()
                 log_info("browser session refreshed")
 
-            if time.monotonic() - last_theater_refresh >= THEATER_LIST_REFRESH_INTERVAL_SEC:
-                await refresh_theaters_cache(page)
-                last_theater_refresh = time.monotonic()
+            if time.monotonic() - last_catalog_refresh >= CATALOG_REFRESH_INTERVAL_SEC:
+                await refresh_catalog_cache(page)
+                last_catalog_refresh = time.monotonic()
 
             entries = await fetch_all_showtimes(page)
             save_showtimes(

@@ -140,42 +140,42 @@ def save_showtimes(
             pass
 
 
-def load_theaters(
-    theaters_file: str,
+def load_json_list(
+    file: str,
 ) -> list[dict[str, Any]]:
-    """fetch.py가 하루 한 번 갱신하는 극장 목록 캐시를 읽는다. 아직 한 번도 안
-    돌았거나 파일이 깨졌으면 빈 리스트."""
-    if not os.path.exists(theaters_file):
+    """단순 dict 리스트 형태로 통째로 교체되는 캐시 파일을 읽는다 (극장/영화
+    목록 등). fetch.py가 아직 한 번도 안 돌았거나 파일이 깨졌으면 빈 리스트."""
+    if not os.path.exists(file):
         return []
 
     try:
-        with open(theaters_file, "r", encoding="utf-8") as file:
-            data = json.load(file)
+        with open(file, "r", encoding="utf-8") as f:
+            data = json.load(f)
     except (OSError, json.JSONDecodeError) as error:
-        log_error(f"failed to load theaters file: {error}")
+        log_error(f"failed to load {file}: {error}")
         return []
 
     if not isinstance(data, list):
-        log_error("invalid theaters file format")
+        log_error(f"invalid list format in {file}")
         return []
 
-    return [theater for theater in data if isinstance(theater, dict)]
+    return [item for item in data if isinstance(item, dict)]
 
 
-def save_theaters(
-    theaters_file: str,
-    theaters: list[dict[str, Any]],
+def save_json_list(
+    file: str,
+    items: list[dict[str, Any]],
 ) -> None:
-    temporary_file = f"{theaters_file}.tmp"
+    temporary_file = f"{file}.tmp"
 
     try:
-        with open(temporary_file, "w", encoding="utf-8") as file:
-            json.dump(theaters, file, ensure_ascii=False, indent=2)
+        with open(temporary_file, "w", encoding="utf-8") as f:
+            json.dump(items, f, ensure_ascii=False, indent=2)
 
-        os.replace(temporary_file, theaters_file)
+        os.replace(temporary_file, file)
 
     except OSError as error:
-        log_error(f"failed to save theaters file: {error}")
+        log_error(f"failed to save {file}: {error}")
 
         try:
             if os.path.exists(temporary_file):

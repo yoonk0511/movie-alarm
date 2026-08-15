@@ -2,7 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
-from cgv_open_push.cgv_models import CgvTheater
+from cgv_open_push.cgv_models import CgvMovie, CgvTheater
 
 from alarm_bot import utils
 
@@ -36,7 +36,7 @@ def test_search_theaters_filters_cached_list_by_query_substring(monkeypatch):
         {"site_no": "0013", "site_name": "용산아이파크몰"},
         {"site_no": "0056", "site_name": "강남"},
     ]
-    monkeypatch.setattr(utils, "load_theaters", lambda file: cached)
+    monkeypatch.setattr(utils, "load_json_list", lambda file: cached)
 
     matches = run(utils.search_theaters("용산"))
 
@@ -45,7 +45,7 @@ def test_search_theaters_filters_cached_list_by_query_substring(monkeypatch):
 
 def test_search_theaters_returns_empty_when_no_match(monkeypatch):
     monkeypatch.setattr(
-        utils, "load_theaters", lambda file: [{"site_no": "0013", "site_name": "용산아이파크몰"}]
+        utils, "load_json_list", lambda file: [{"site_no": "0013", "site_name": "용산아이파크몰"}]
     )
 
     assert run(utils.search_theaters("없는극장")) == []
@@ -58,13 +58,34 @@ def test_search_theaters_falls_back_to_live_fetch_when_cache_empty(monkeypatch):
     ]
     fake_client = MagicMock()
     fake_client.fetch_regn_list = AsyncMock(return_value=theaters)
-    monkeypatch.setattr(utils, "load_theaters", lambda file: [])
+    monkeypatch.setattr(utils, "load_json_list", lambda file: [])
     monkeypatch.setattr(utils, "cgv_browser_session", fake_browser_session)
     monkeypatch.setattr(utils, "CgvApiClient", lambda page: fake_client)
 
     matches = run(utils.search_theaters("용산"))
 
     assert matches == [{"site_no": "0013", "site_name": "용산아이파크몰"}]
+
+
+def test_search_movies_filters_cached_list_by_query_substring(monkeypatch):
+    cached = [{"movie_name": "오디세이"}, {"movie_name": "탑건"}]
+    monkeypatch.setattr(utils, "load_json_list", lambda file: cached)
+
+    assert run(utils.search_movies("오디")) == ["오디세이"]
+
+
+def test_search_movies_falls_back_to_live_fetch_when_cache_empty(monkeypatch):
+    movies = [
+        CgvMovie(co_cd="A420", movie_no="1", movie_name="오디세이"),
+        CgvMovie(co_cd="A420", movie_no="2", movie_name="탑건"),
+    ]
+    fake_client = MagicMock()
+    fake_client.fetch_movie_list = AsyncMock(return_value=movies)
+    monkeypatch.setattr(utils, "load_json_list", lambda file: [])
+    monkeypatch.setattr(utils, "cgv_browser_session", fake_browser_session)
+    monkeypatch.setattr(utils, "CgvApiClient", lambda page: fake_client)
+
+    assert run(utils.search_movies("오디")) == ["오디세이"]
 
 
 def test_fetch_showtimes_for_site_uses_site_name_not_site_no(monkeypatch):

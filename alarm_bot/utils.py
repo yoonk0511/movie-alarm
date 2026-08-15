@@ -4,8 +4,8 @@ from playwright.async_api import async_playwright
 
 from cgv_open_push.cgv_api import CgvApiClient, CgvTheaterClient
 from cgv_open_push.config import BOOKING_PAGE_URL, USER_AGENT
-from monitoring.config import THEATERS_FILE
-from monitoring.utils import load_theaters
+from monitoring.config import MOVIES_FILE, THEATERS_FILE
+from monitoring.utils import load_json_list
 
 ALL_MOVIES = "__전체_영화__"  # 실제 영화 제목과 안 겹치는 sentinel 값
 
@@ -29,7 +29,7 @@ async def search_theaters(query):
     """fetch.py가 하루 한 번 갱신하는 극장 목록 캐시에서 찾는다 — 매번 브라우저를
     새로 띄우지 않아서 즉시 응답한다. 캐시가 아직 없으면(첫 배포 직후 등) 그때만
     라이브로 조회한다."""
-    theaters = load_theaters(THEATERS_FILE)
+    theaters = load_json_list(THEATERS_FILE)
 
     if not theaters:
         async with cgv_browser_session() as page:
@@ -42,6 +42,23 @@ async def search_theaters(query):
         {"site_no": theater["site_no"], "site_name": theater["site_name"]}
         for theater in theaters
         if query in theater["site_name"]
+    ]
+
+
+async def search_movies(query):
+    """fetch.py가 하루 한 번 갱신하는 전체 상영작 목록 캐시(극장 무관)에서
+    찾는다. 캐시가 아직 없으면 그때만 라이브로 조회한다."""
+    movies = load_json_list(MOVIES_FILE)
+
+    if not movies:
+        async with cgv_browser_session() as page:
+            movies = [
+                {"movie_name": movie.movie_name}
+                for movie in await CgvApiClient(page).fetch_movie_list()
+            ]
+
+    return [
+        movie["movie_name"] for movie in movies if query in str(movie.get("movie_name", ""))
     ]
 
 
