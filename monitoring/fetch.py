@@ -20,8 +20,9 @@ configure()
 
 
 def target_site_names() -> list[str]:
-    """지금 감시 중인 target들이 걸려있는 극장 이름만 뽑는다 — 아무도 안 보는
-    극장까지 매번 긁을 필요는 없다."""
+    """지금 감시 중인 target들이 걸려있는 극장 이름만 뽑는다. CGV 전국 극장을 다
+    긁는 건 실측해보니 한 바퀴에 30분~3시간이 걸려서 5분 주기(POLL_INTERVAL_SEC)와
+    안 맞았다 — target 걸린 몇 개만 긁는 게 실제로 돌아가는 유일한 방법."""
     return sorted({str(t["site_name"]) for t in load_targets()})
 
 
