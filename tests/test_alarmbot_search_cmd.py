@@ -1,5 +1,7 @@
 from unittest.mock import AsyncMock
 
+from cgv_open_push.cgv_models import CgvTheater
+
 from alarm_bot.commands import search as search_cmds
 
 from _bot_test_helpers import make_interaction, run
@@ -21,7 +23,9 @@ def test_search_cmd_lists_matches(monkeypatch):
     monkeypatch.setattr(
         search_cmds,
         "search_theaters",
-        AsyncMock(return_value=[{"site_no": "0013", "site_name": "용산아이파크몰"}]),
+        AsyncMock(
+            return_value=[CgvTheater(co_cd="A420", site_no="0013", site_name="용산아이파크몰")]
+        ),
     )
     interaction = make_interaction()
 

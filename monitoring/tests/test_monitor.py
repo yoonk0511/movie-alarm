@@ -1,4 +1,18 @@
+from alarm_bot.targets_store import TargetSpec
+from cgv_open_push.cgv_models import CgvShowtime
 from monitoring.monitor import Target, TargetRegistry
+
+
+def make_spec(**overrides):
+    fields = {
+        "id": "t1",
+        "site_name": "용산아이파크몰",
+        "movie": "",
+        "date": [],
+        "grades": [],
+    }
+    fields.update(overrides)
+    return TargetSpec(**fields)
 
 
 def make_target(**overrides):
@@ -14,7 +28,8 @@ def make_target(**overrides):
 
 
 def make_entry(**overrides):
-    entry = {
+    fields = {
+        "site_no": "0013",
         "provider": "cgv",
         "site_name": "용산아이파크몰",
         "movie": "듄",
@@ -23,8 +38,8 @@ def make_entry(**overrides):
         "time": "1800",
         "screen": "1관",
     }
-    entry.update(overrides)
-    return entry
+    fields.update(overrides)
+    return CgvShowtime(**fields)
 
 
 def test_matches_true_when_no_filters_set():
@@ -95,16 +110,10 @@ def test_check_excludes_entries_that_do_not_match_other_sites():
     assert new_entries == [make_entry(movie="듄", date="20260810")]
 
 
-def test_from_dict_builds_target_without_touching_any_client():
-    data = {
-        "id": "t1",
-        "site_name": "용산아이파크몰",
-        "movie": "F1",
-        "date": ["20260810"],
-        "grades": ["아이맥스"],
-    }
+def test_from_spec_builds_target_without_touching_any_client():
+    spec = make_spec(movie="F1", date=["20260810"], grades=["아이맥스"])
 
-    target = Target.from_dict(data)
+    target = Target.from_spec(spec)
 
     assert target.id == "t1"
     assert target.site_name == "용산아이파크몰"
@@ -114,26 +123,19 @@ def test_from_dict_builds_target_without_touching_any_client():
     assert target.provider == "cgv"
 
 
-def test_from_dict_reads_explicit_provider():
-    data = {
-        "id": "t1",
-        "site_name": "메가박스 코엑스",
-        "movie": "",
-        "date": [],
-        "grades": [],
-        "provider": "megabox",
-    }
+def test_from_spec_reads_explicit_provider():
+    spec = make_spec(site_name="메가박스 코엑스", provider="megabox")
 
-    target = Target.from_dict(data)
+    target = Target.from_spec(spec)
 
     assert target.provider == "megabox"
 
 
 def test_registry_sync_creates_new_targets_and_flags_them():
     registry = TargetRegistry()
-    data = [{"id": "t1", "site_name": "용산아이파크몰", "movie": "", "date": [], "grades": []}]
+    specs = [make_spec()]
 
-    pairs = registry.sync(data)
+    pairs = registry.sync(specs)
 
     assert len(pairs) == 1
     target, is_new = pairs[0]
@@ -143,12 +145,12 @@ def test_registry_sync_creates_new_targets_and_flags_them():
 
 def test_registry_sync_reuses_existing_target_instance_and_marks_not_new():
     registry = TargetRegistry()
-    data = [{"id": "t1", "site_name": "용산아이파크몰", "movie": "", "date": [], "grades": []}]
+    specs = [make_spec()]
 
-    first_target, _ = registry.sync(data)[0]
+    first_target, _ = registry.sync(specs)[0]
     first_target.previous_signatures = {"some-signature"}
 
-    second_target, is_new = registry.sync(data)[0]
+    second_target, is_new = registry.sync(specs)[0]
 
     assert second_target is first_target
     assert is_new is False
@@ -157,8 +159,8 @@ def test_registry_sync_reuses_existing_target_instance_and_marks_not_new():
 
 def test_registry_sync_drops_removed_targets():
     registry = TargetRegistry()
-    data = [{"id": "t1", "site_name": "용산아이파크몰", "movie": "", "date": [], "grades": []}]
-    registry.sync(data)
+    specs = [make_spec()]
+    registry.sync(specs)
 
     pairs = registry.sync([])
 
@@ -168,8 +170,8 @@ def test_registry_sync_drops_removed_targets():
 
 def test_registry_restore_and_snapshot_signatures_round_trip():
     registry = TargetRegistry()
-    data = [{"id": "t1", "site_name": "용산아이파크몰", "movie": "", "date": [], "grades": []}]
-    registry.sync(data)
+    specs = [make_spec()]
+    registry.sync(specs)
 
     registry.restore_signatures({"t1": ["sig-a", "sig-b"]})
 

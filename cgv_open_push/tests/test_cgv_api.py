@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from cgv_open_push.cgv_api import CgvApiClient, CgvApiError, CgvTheaterClient
-from cgv_open_push.cgv_models import CgvMovie, CgvTheater
+from cgv_open_push.cgv_models import CgvMovie, CgvShowtime, CgvTheater
 
 
 def run(coro):
@@ -245,7 +245,10 @@ def test_fetch_showtimes_filters_non_dict_entries_and_sends_expected_params():
 
     entries = run(client.fetch_showtimes("20260810"))
 
-    assert entries == [{"prodNm": "듄"}]
+    assert len(entries) == 1
+    assert isinstance(entries[0], CgvShowtime)
+    assert entries[0].movie == "듄"
+    assert entries[0].site_name == "용산아이파크몰"
     assert called_url(page) == (
         "/api/v1/booking/searchMovScnInfo?coCd=A420&siteNo=0013&scnYmd=20260810&rtctlScopCd=08"
     )

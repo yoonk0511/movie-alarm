@@ -20,7 +20,6 @@ async def on_ready():
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}", flush=True)
     logging.info(msg)
 
-
 def run():
     if not DISCORD_BOT_TOKEN:
         raise SystemExit("DISCORD_BOT_TOKEN not set")

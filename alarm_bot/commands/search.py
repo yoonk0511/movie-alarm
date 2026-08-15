@@ -20,5 +20,5 @@ async def search_cmd(interaction: discord.Interaction, query: str):
     if not matches:
         await interaction.followup.send(f"'{query}'에 해당하는 극장을 찾지 못했습니다.")
         return
-    lines = ["**검색 결과**"] + [f"- {m['site_name']} ({m['site_no']})" for m in matches[:15]]
+    lines = ["**검색 결과**"] + [f"- {m.site_name} ({m.site_no})" for m in matches[:15]]
     await interaction.followup.send("\n".join(lines))

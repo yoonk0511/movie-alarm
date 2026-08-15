@@ -3,9 +3,10 @@ from contextlib import asynccontextmanager
 from playwright.async_api import async_playwright
 
 from cgv_open_push.cgv_api import CgvApiClient, CgvTheaterClient
+from cgv_open_push.cgv_models import CgvMovie, CgvTheater
 from cgv_open_push.config import BOOKING_PAGE_URL, USER_AGENT
-from monitoring.config import MOVIES_FILE, THEATERS_FILE
-from monitoring.utils import load_json_list
+from monitoring.config import MOVIES_FILE, SHOWTIMES_FILE, THEATERS_FILE
+from monitoring.utils import load_json_list, load_showtimes
 
 ALL_MOVIES = "__전체_영화__"  # 실제 영화 제목과 안 겹치는 sentinel 값
 
@@ -25,41 +26,38 @@ async def cgv_browser_session():
             await browser.close()
 
 
-async def search_theaters(query):
+async def search_theaters(query: str) -> list[CgvTheater]:
     """fetch.py가 하루 한 번 갱신하는 극장 목록 캐시에서 찾는다 — 매번 브라우저를
     새로 띄우지 않아서 즉시 응답한다. 캐시가 아직 없으면(첫 배포 직후 등) 그때만
     라이브로 조회한다."""
-    theaters = load_json_list(THEATERS_FILE)
+    theaters = load_json_list(THEATERS_FILE, CgvTheater)
 
     if not theaters:
         async with cgv_browser_session() as page:
-            theaters = [
-                {"site_no": theater.site_no, "site_name": theater.site_name}
-                for theater in await CgvApiClient(page).fetch_regn_list()
-            ]
+            theaters = await CgvApiClient(page).fetch_regn_list()
 
-    return [
-        {"site_no": theater["site_no"], "site_name": theater["site_name"]}
-        for theater in theaters
-        if query in theater["site_name"]
-    ]
+    return [theater for theater in theaters if query in theater.site_name]
 
 
-async def search_movies(query):
+async def search_movies(query: str) -> list[CgvMovie]:
     """fetch.py가 하루 한 번 갱신하는 전체 상영작 목록 캐시(극장 무관)에서
     찾는다. 캐시가 아직 없으면 그때만 라이브로 조회한다."""
-    movies = load_json_list(MOVIES_FILE)
+    movies = load_json_list(MOVIES_FILE, CgvMovie)
 
     if not movies:
         async with cgv_browser_session() as page:
-            movies = [
-                {"movie_name": movie.movie_name}
-                for movie in await CgvApiClient(page).fetch_movie_list()
-            ]
+            movies = await CgvApiClient(page).fetch_movie_list()
 
-    return [
-        movie["movie_name"] for movie in movies if query in str(movie.get("movie_name", ""))
-    ]
+    return [movie for movie in movies if query in movie.movie_name]
+
+
+def search_grades(query: str) -> list[str]:
+    """CGV 전체 등급/포맷 목록을 주는 API가 따로 없어서, fetch.py가 5분마다 갱신하는
+    showtimes 스냅샷에서 실제로 관측된 값들로 찾는다 — target이 하나도 없으면
+    빈 목록."""
+    entries = load_showtimes(SHOWTIMES_FILE)
+    grades = sorted({entry.grade for entry in entries if entry.grade})
+    return [grade for grade in grades if query in grade]
 
 
 async def fetch_showtimes_for_site(site_name, scn_ymd=None):
@@ -67,12 +65,16 @@ async def fetch_showtimes_for_site(site_name, scn_ymd=None):
         return await CgvTheaterClient(page, site_name=site_name).fetch_showtime_entries(scn_ymd)
 
 
-def distinct_sorted(entries, field):
-    return sorted({str(entry[field]) for entry in entries if entry.get(field)})
+def distinct_movies(showtimes) -> list[str]:
+    return sorted({showtime.movie for showtime in showtimes if showtime.movie})
 
 
-def describe_target(t):
-    movie_desc = t.get("movie") or "전체 영화"
-    date_desc = ", ".join(t["date"]) if t.get("date") else "전체 날짜"
-    grade_desc = ", ".join(t["grades"]) if t["grades"] else "등급 무관"
+def distinct_grades(showtimes) -> list[str]:
+    return sorted({showtime.grade for showtime in showtimes if showtime.grade})
+
+
+def describe_target(target):
+    movie_desc = target.movie or "전체 영화"
+    date_desc = ", ".join(target.date) if target.date else "전체 날짜"
+    grade_desc = ", ".join(target.grades) if target.grades else "등급 무관"
     return f"{movie_desc} / {date_desc} / {grade_desc}"

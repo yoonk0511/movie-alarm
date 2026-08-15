@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Any
 
+from alarm_bot.targets_store import TargetSpec
+from cgv_open_push.cgv_models import CgvShowtime
 from logging_setup import log_info
 
 from .utils import build_signature
@@ -8,10 +9,11 @@ from .utils import build_signature
 
 @dataclass
 class Target:
-    """감시 대상 하나. targets.json의 dict 한 줄에 대응하며, movie/date/grade 조건에
-    맞는 회차를 fetch.py가 만든 스냅샷에서 찾아 이전 폴링과 비교하는 것까지 스스로
-    책임진다. CGV API나 브라우저는 전혀 모른다 — fetch.py가 이미 정규화해서 넘겨준
-    회차 dict(site_no/site_name/movie/grade/date/time/screen)만 다룬다."""
+    """감시 대상 하나. TargetSpec(감시 조건 자체)에 폴링 중 쌓이는 signature
+    상태를 더한 것 — movie/date/grade 조건에 맞는 회차를 fetch.py가 만든
+    스냅샷에서 찾아 이전 폴링과 비교하는 것까지 스스로 책임진다. CGV API나
+    브라우저는 전혀 모른다 — fetch.py가 이미 정규화해서 넘겨준 CgvShowtime만
+    다룬다."""
 
     id: str
     site_name: str
@@ -22,41 +24,41 @@ class Target:
     previous_signatures: set[str] = field(default_factory=set)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Target":
+    def from_spec(cls, spec: TargetSpec) -> "Target":
         return cls(
-            id=str(data["id"]),
-            site_name=str(data["site_name"]),
-            movie=str(data.get("movie") or ""),
-            dates={str(d) for d in (data.get("date") or [])},
-            grades={str(g) for g in data["grades"]},
-            provider=str(data.get("provider") or "cgv"),
+            id=spec.id,
+            site_name=spec.site_name,
+            movie=spec.movie,
+            dates=set(spec.date),
+            grades=set(spec.grades),
+            provider=spec.provider,
         )
 
-    def matches(self, entry: dict[str, Any]) -> bool:
-        if str(entry.get("provider", "")) != self.provider:
+    def matches(self, entry: CgvShowtime) -> bool:
+        if entry.provider != self.provider:
             return False
-        if str(entry.get("site_name", "")) != self.site_name:
+        if entry.site_name != self.site_name:
             return False
-        if self.dates and str(entry.get("date", "")) not in self.dates:
+        if self.dates and entry.date not in self.dates:
             return False
-        if self.grades and str(entry.get("grade", "")) not in self.grades:
+        if self.grades and (entry.grade or "") not in self.grades:
             return False
-        if self.movie and self.movie not in str(entry.get("movie", "")):
+        if self.movie and self.movie not in entry.movie:
             return False
         return True
 
     def check(
         self,
-        entries: list[dict[str, Any]],
+        entries: list[CgvShowtime],
         *,
         baseline_only: bool,
-    ) -> list[dict[str, Any]]:
+    ) -> list[CgvShowtime]:
         """스냅샷 전체(여러 극장이 섞여 있음)에서 자기 조건에 맞는 회차 중 새로
         나타난 것을 반환하고, previous_signatures를 이번 폴링 결과로 갱신한다.
         baseline_only=True면 기준선만 잡고 new_entries는 항상 비운다 (첫 실행/방금
         추가된 대상 처리용)."""
         current_signatures: set[str] = set()
-        new_entries: list[dict[str, Any]] = []
+        new_entries: list[CgvShowtime] = []
 
         for entry in entries:
             if not self.matches(entry):
@@ -71,12 +73,7 @@ class Target:
         self.previous_signatures = current_signatures
 
         if new_entries:
-            new_entries.sort(
-                key=lambda entry: (
-                    str(entry.get("date", "")),
-                    str(entry.get("time", "")),
-                )
-            )
+            new_entries.sort(key=lambda entry: (entry.date, entry.time))
             log_info(f"{self.site_name} new showtimes: {len(new_entries)}")
 
         return new_entries
@@ -91,9 +88,9 @@ class TargetRegistry:
     def __init__(self) -> None:
         self._targets: dict[str, Target] = {}
 
-    def sync(self, target_dicts: list[dict[str, Any]]) -> list[tuple[Target, bool]]:
+    def sync(self, specs: list[TargetSpec]) -> list[tuple[Target, bool]]:
         """(Target, is_new) 리스트를 반환한다. targets.json에서 사라진 대상은 정리한다."""
-        live_ids = {str(data["id"]) for data in target_dicts}
+        live_ids = {spec.id for spec in specs}
         self._targets = {
             target_id: target
             for target_id, target in self._targets.items()
@@ -101,12 +98,11 @@ class TargetRegistry:
         }
 
         result = []
-        for data in target_dicts:
-            target_id = str(data["id"])
-            is_new = target_id not in self._targets
+        for spec in specs:
+            is_new = spec.id not in self._targets
             if is_new:
-                self._targets[target_id] = Target.from_dict(data)
-            result.append((self._targets[target_id], is_new))
+                self._targets[spec.id] = Target.from_spec(spec)
+            result.append((self._targets[spec.id], is_new))
         return result
 
     def restore_signatures(self, state: dict[str, list[str]]) -> None:

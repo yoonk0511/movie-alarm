@@ -18,7 +18,7 @@ from urllib.parse import urlencode
 
 from playwright.async_api import Page
 
-from .cgv_models import CgvMovie, CgvTheater
+from .cgv_models import CgvMovie, CgvShowtime, CgvTheater
 from .config import CO_CD
 from .utils import normalize_name
 
@@ -141,7 +141,7 @@ class CgvTheaterClient(CgvApiClient):
 
         return [str(row["scnYmd"]) for row in data if isinstance(row, dict) and row.get("scnYmd")]
 
-    async def fetch_showtimes(self, scn_ymd: str) -> list[dict[str, Any]]:
+    async def fetch_showtimes(self, scn_ymd: str) -> list[CgvShowtime]:
         site_no = await self._resolve_site_no()
         data = await self._get_data_list(
             "/api/v1/booking/searchMovScnInfo",
@@ -154,9 +154,13 @@ class CgvTheaterClient(CgvApiClient):
             what="showtime",
         )
 
-        return [entry for entry in data if isinstance(entry, dict)]
+        return [
+            CgvShowtime.from_api(entry, site_name=self.site_name)
+            for entry in data
+            if isinstance(entry, dict)
+        ]
 
-    async def fetch_showtime_entries(self, scn_ymd: str | None = None) -> list[dict[str, Any]]:
+    async def fetch_showtime_entries(self, scn_ymd: str | None = None) -> list[CgvShowtime]:
         """scn_ymd를 안 주면 가장 가까운 상영일 기준."""
         if scn_ymd is None:
             dates = await self.fetch_scheduled_dates()
@@ -210,12 +214,7 @@ if __name__ == "__main__":
                 entries = await theater_client.fetch_showtime_entries()
                 print(f"[fetch_showtime_entries] 가장 가까운 날짜 상영 회차: {len(entries)}개")
                 for entry in entries:
-                    print(
-                        " -",
-                        entry.get("prodNm"),
-                        entry.get("tcscnsGradNm"),
-                        entry.get("scnsrtTm"),
-                    )
+                    print(" -", entry.movie, entry.grade, entry.time)
             finally:
                 await browser.close()
 

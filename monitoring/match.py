@@ -1,9 +1,9 @@
 import time
-from typing import Any
 
 from alarm_bot.config import DISCORD_WEBHOOK_URL
 from alarm_bot.notify import send_discord
-from alarm_bot.targets_store import load_targets
+from alarm_bot.targets_store import TargetSpec, load_targets
+from cgv_open_push.cgv_models import CgvShowtime
 from cgv_open_push.config import BOOKING_PAGE_URL
 from logging_setup import configure, log_exception, log_info
 
@@ -16,17 +16,14 @@ configure()
 
 def build_notification_message(
     site_name: str,
-    entries: list[dict[str, Any]],
+    entries: list[CgvShowtime],
 ) -> str:
     lines = [f"**{site_name} 예매 오픈 알림**"]
 
     for entry in entries:
         lines.append(
-            f"- {format_date(str(entry.get('date', '')))} "
-            f"{format_time(str(entry.get('time', '')))} "
-            f"[{entry.get('grade', '')}] "
-            f"{entry.get('movie', '')} "
-            f"({entry.get('screen', '')})"
+            f"- {format_date(entry.date)} {format_time(entry.time)} "
+            f"[{entry.grade or ''}] {entry.movie} ({entry.screen or ''})"
         )
 
     lines.append(BOOKING_PAGE_URL)
@@ -36,11 +33,11 @@ def build_notification_message(
 
 def check_all_targets(
     registry: TargetRegistry,
-    targets: list[dict[str, Any]],
-    entries: list[dict[str, Any]],
+    targets: list[TargetSpec],
+    entries: list[CgvShowtime],
     first_run: bool,
 ) -> None:
-    """targets.json에서 나온 감시 대상 dict들을 최신 목록과 동기화하고, 각 Target이
+    """targets.json에서 나온 감시 대상들을 최신 목록과 동기화하고, 각 Target이
     스스로 판단한 새 회차가 있으면 Discord로 알린다. 대상 하나에서 에러가 나도
     그 대상만 건너뛰고 나머지는 계속 진행한다."""
     for target, is_new in registry.sync(targets):

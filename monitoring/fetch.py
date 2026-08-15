@@ -1,6 +1,5 @@
 import asyncio
 import time
-from dataclasses import asdict
 from datetime import datetime, timezone
 
 from playwright.async_api import Page, async_playwright
@@ -30,16 +29,32 @@ def target_site_names() -> list[str]:
     """지금 감시 중인 target들이 걸려있는 극장 이름만 뽑는다. CGV 전국 극장을 다
     긁는 건 실측해보니 한 바퀴에 30분~3시간이 걸려서 5분 주기(POLL_INTERVAL_SEC)와
     안 맞았다 — target 걸린 몇 개만 긁는 게 실제로 돌아가는 유일한 방법."""
-    return sorted({str(t["site_name"]) for t in load_targets()})
+    return sorted({t.site_name for t in load_targets()})
 
 
-async def fetch_all_showtimes(page: Page) -> list[dict]:
+async def fetch_all_showtimes(
+    page: Page,
+    theater_clients: dict[str, CgvTheaterClient],
+) -> list[CgvShowtime]:
     """target이 걸린 극장마다 스케줄된 날짜 전부의 회차를 가져와 정규화한다.
-    극장 하나를 못 찾는 등 개별 실패는 그 극장만 건너뛰고 나머지는 계속한다."""
-    all_entries: list[dict] = []
+    극장 하나를 못 찾는 등 개별 실패는 그 극장만 건너뛰고 나머지는 계속한다.
 
-    for site_name in target_site_names():
-        theater = CgvTheaterClient(page, site_name=site_name)
+    theater_clients는 호출부(run_fetch_loop)가 폴링 사이에 들고 있는 캐시다 —
+    CgvTheaterClient는 첫 호출 때 site_no를 찾아서 인스턴스에 캐싱해두는데, 매
+    폴링마다 새로 만들면 그 캐시가 매번 버려져서 극장마다 site_no 조회가
+    반복된다. site_no는 브라우저 세션(쿠키)과 무관해서 페이지가 새로고침돼도
+    안 깨진다."""
+    all_entries: list[CgvShowtime] = []
+    live_site_names = target_site_names()
+
+    for site_name in list(theater_clients):
+        if site_name not in live_site_names:
+            del theater_clients[site_name]
+
+    for site_name in live_site_names:
+        if site_name not in theater_clients:
+            theater_clients[site_name] = CgvTheaterClient(page, site_name=site_name)
+        theater = theater_clients[site_name]
         try:
             scheduled_dates = await theater.fetch_scheduled_dates()
         except Exception as error:
@@ -48,14 +63,12 @@ async def fetch_all_showtimes(page: Page) -> list[dict]:
 
         for scn_ymd in scheduled_dates:
             try:
-                raw_entries = await theater.fetch_showtimes(scn_ymd)
+                showtimes = await theater.fetch_showtimes(scn_ymd)
             except Exception as error:
                 log_exception(f"{site_name} {scn_ymd} fetch_showtimes failed, skipping: {error}")
                 continue
 
-            all_entries.extend(
-                asdict(CgvShowtime.from_api(raw, site_name=site_name)) for raw in raw_entries
-            )
+            all_entries.extend(showtimes)
 
             await asyncio.sleep(0.3)
 
@@ -69,10 +82,10 @@ async def refresh_catalog_cache(page: Page) -> None:
     client = CgvApiClient(page)
 
     theaters = await client.fetch_regn_list()
-    save_json_list(THEATERS_FILE, [asdict(theater) for theater in theaters])
+    save_json_list(THEATERS_FILE, theaters)
 
     movies = await client.fetch_movie_list()
-    save_json_list(MOVIES_FILE, [asdict(movie) for movie in movies])
+    save_json_list(MOVIES_FILE, movies)
 
     log_info(f"refreshed catalog cache (극장 {len(theaters)}개, 영화 {len(movies)}개)")
 
@@ -102,6 +115,7 @@ async def run_fetch_loop(page: Page) -> None:
     log_info("cgv-fetcher started, browser session established")
     send_discord(webhook_url=DISCORD_WEBHOOK_URL, content="cgv-fetcher started...")
 
+    theater_clients: dict[str, CgvTheaterClient] = {}
     last_refresh = time.monotonic()
     last_catalog_refresh = time.monotonic()
 
@@ -117,7 +131,7 @@ async def run_fetch_loop(page: Page) -> None:
                 await refresh_catalog_cache(page)
                 last_catalog_refresh = time.monotonic()
 
-            entries = await fetch_all_showtimes(page)
+            entries = await fetch_all_showtimes(page, theater_clients)
             save_showtimes(
                 SHOWTIMES_FILE,
                 entries,

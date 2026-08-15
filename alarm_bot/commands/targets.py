@@ -15,5 +15,5 @@ async def targets_cmd(interaction: discord.Interaction):
         return
     lines = ["**현재 감시 대상**"]
     for t in targets:
-        lines.append(f"- [{t['id']}] {t['site_name']} - {describe_target(t)}")
+        lines.append(f"- [{t.id}] {t.site_name} - {describe_target(t)}")
     await interaction.response.send_message("\n".join(lines))

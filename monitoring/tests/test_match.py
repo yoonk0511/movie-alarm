@@ -1,11 +1,14 @@
 from unittest.mock import MagicMock
 
+from alarm_bot.targets_store import TargetSpec
+from cgv_open_push.cgv_models import CgvShowtime
 from monitoring.match import build_notification_message, check_all_targets
 from monitoring.monitor import TargetRegistry
 
 
 def make_entry(**overrides):
-    entry = {
+    fields = {
+        "site_no": "0013",
         "provider": "cgv",
         "site_name": "용산아이파크몰",
         "movie": "오디세이",
@@ -14,8 +17,20 @@ def make_entry(**overrides):
         "time": "0730",
         "screen": "IMAX관",
     }
-    entry.update(overrides)
-    return entry
+    fields.update(overrides)
+    return CgvShowtime(**fields)
+
+
+def make_spec(**overrides):
+    fields = {
+        "id": "t1",
+        "site_name": "용산아이파크몰",
+        "movie": "",
+        "date": [],
+        "grades": [],
+    }
+    fields.update(overrides)
+    return TargetSpec(**fields)
 
 
 def test_build_notification_message_formats_date_time_and_footer():
@@ -29,15 +44,7 @@ def test_build_notification_message_formats_date_time_and_footer():
 
 def test_check_all_targets_sends_discord_only_for_matching_new_entries(monkeypatch):
     registry = TargetRegistry()
-    targets = [
-        {
-            "id": "t1",
-            "site_name": "용산아이파크몰",
-            "movie": "오디세이",
-            "date": [],
-            "grades": ["아이맥스"],
-        }
-    ]
+    targets = [make_spec(movie="오디세이", grades=["아이맥스"])]
     entries = [make_entry(), make_entry(movie="탑건")]
 
     send_mock = MagicMock()
@@ -56,9 +63,7 @@ def test_check_all_targets_sends_discord_only_for_matching_new_entries(monkeypat
 
 def test_check_all_targets_sends_nothing_on_baseline_run(monkeypatch):
     registry = TargetRegistry()
-    targets = [
-        {"id": "t1", "site_name": "용산아이파크몰", "movie": "", "date": [], "grades": []}
-    ]
+    targets = [make_spec()]
     entries = [make_entry()]
 
     send_mock = MagicMock()
@@ -72,8 +77,8 @@ def test_check_all_targets_sends_nothing_on_baseline_run(monkeypatch):
 def test_check_all_targets_skips_target_whose_check_raises(monkeypatch):
     registry = TargetRegistry()
     targets = [
-        {"id": "t1", "site_name": "용산아이파크몰", "movie": "", "date": [], "grades": []},
-        {"id": "t2", "site_name": "강남", "movie": "", "date": [], "grades": []},
+        make_spec(),
+        make_spec(id="t2", site_name="강남"),
     ]
 
     send_mock = MagicMock()
