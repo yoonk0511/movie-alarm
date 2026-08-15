@@ -26,10 +26,12 @@ configure()
 
 
 def target_site_names() -> list[str]:
-    """지금 감시 중인 target들이 걸려있는 극장 이름만 뽑는다. CGV 전국 극장을 다
-    긁는 건 실측해보니 한 바퀴에 30분~3시간이 걸려서 5분 주기(POLL_INTERVAL_SEC)와
-    안 맞았다 — target 걸린 몇 개만 긁는 게 실제로 돌아가는 유일한 방법."""
-    return sorted({t.site_name for t in load_targets()})
+    """지금 감시 중인 CGV target들이 걸려있는 극장 이름만 뽑는다. CGV 전국 극장을
+    다 긁는 건 실측해보니 한 바퀴에 30분~3시간이 걸려서 5분 주기(POLL_INTERVAL_SEC)와
+    안 맞았다 — target 걸린 몇 개만 긁는 게 실제로 돌아가는 유일한 방법. 이
+    fetcher는 CGV 전용이라 다른 provider의 target은 걸러낸다 — 안 그러면
+    CgvTheaterClient가 그 극장을 CGV 카탈로그에서 못 찾아 매 폴링마다 에러가 난다."""
+    return sorted({t.site_name for t in load_targets() if t.provider == "cgv"})
 
 
 async def fetch_all_showtimes(

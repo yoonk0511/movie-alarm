@@ -51,11 +51,16 @@ async def search_movies(query: str) -> list[CgvMovie]:
     return [movie for movie in movies if query in movie.movie_name]
 
 
-def search_grades(query: str) -> list[str]:
+def search_grades(query: str, site_name: str = "") -> list[str]:
     """CGV 전체 등급/포맷 목록을 주는 API가 따로 없어서, fetch.py가 5분마다 갱신하는
     showtimes 스냅샷에서 실제로 관측된 값들로 찾는다 — target이 하나도 없으면
-    빈 목록."""
+    빈 목록. site_name이 주어지면 그 극장 회차로 좁혀서 찾는다 — 아직 극장을
+    안 골랐거나(비어있음) 그 극장 회차가 스냅샷에 없으면 전체에서 찾는다."""
     entries = load_showtimes(SHOWTIMES_FILE)
+    if site_name:
+        scoped = [entry for entry in entries if entry.site_name == site_name]
+        if scoped:
+            entries = scoped
     grades = sorted({entry.grade for entry in entries if entry.grade})
     return [grade for grade in grades if query in grade]
 

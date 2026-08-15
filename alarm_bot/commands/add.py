@@ -113,7 +113,8 @@ async def movie_autocomplete(interaction: discord.Interaction, current: str):
 async def grade_autocomplete(interaction: discord.Interaction, current: str):
     if not current:
         return []
-    matches = search_grades(current)
+    theater = getattr(interaction.namespace, "theater", "")
+    matches = search_grades(current, site_name=theater)
     return [app_commands.Choice(name=name, value=name) for name in matches[:25]]
 
 

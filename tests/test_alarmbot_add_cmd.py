@@ -93,12 +93,28 @@ def test_grade_autocomplete_returns_empty_when_query_empty():
 
 
 def test_grade_autocomplete_wraps_search_grades_results(monkeypatch):
-    monkeypatch.setattr(add_cmds, "search_grades", lambda query: ["아이맥스"])
+    monkeypatch.setattr(add_cmds, "search_grades", lambda query, site_name="": ["아이맥스"])
     interaction = make_interaction()
 
     choices = run(add_cmds.grade_autocomplete(interaction, "맥스"))
 
     assert {c.name for c in choices} == {"아이맥스"}
+
+
+def test_grade_autocomplete_scopes_to_theater_already_typed(monkeypatch):
+    captured = {}
+
+    def fake_search_grades(query, site_name=""):
+        captured["site_name"] = site_name
+        return ["아이맥스"]
+
+    monkeypatch.setattr(add_cmds, "search_grades", fake_search_grades)
+    interaction = make_interaction()
+    interaction.namespace.theater = "용산아이파크몰"
+
+    run(add_cmds.grade_autocomplete(interaction, "맥스"))
+
+    assert captured["site_name"] == "용산아이파크몰"
 
 
 def test_add_cmd_rejects_invalid_date_format():
