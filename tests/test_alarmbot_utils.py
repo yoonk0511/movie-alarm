@@ -135,6 +135,33 @@ def test_search_grades_falls_back_to_all_sites_when_scoped_site_has_no_showtimes
     assert utils.search_grades("", site_name="없는극장") == ["4DX"]
 
 
+def test_search_dates_dedupes_and_sorts_observed_dates(monkeypatch):
+    monkeypatch.setattr(
+        utils,
+        "load_showtimes",
+        lambda file: [
+            make_showtime(date="20260811"),
+            make_showtime(date="20260810"),
+            make_showtime(date="20260810"),
+        ],
+    )
+
+    assert utils.search_dates("") == ["20260810", "20260811"]
+
+
+def test_search_dates_scopes_to_site_name_when_given(monkeypatch):
+    monkeypatch.setattr(
+        utils,
+        "load_showtimes",
+        lambda file: [
+            make_showtime(site_name="용산아이파크몰", date="20260810"),
+            make_showtime(site_name="강남", date="20260811"),
+        ],
+    )
+
+    assert utils.search_dates("", site_name="용산아이파크몰") == ["20260810"]
+
+
 def test_fetch_showtimes_for_site_uses_site_name_not_site_no(monkeypatch):
     captured = {}
     showtime = CgvShowtime(

@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 import discord
 from discord import app_commands
@@ -13,10 +14,18 @@ from ..utils import (
     distinct_grades,
     distinct_movies,
     fetch_showtimes_for_site,
+    search_dates,
     search_grades,
     search_movies,
     search_theaters,
 )
+
+_WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+def _with_weekday(date: str) -> str:
+    weekday = _WEEKDAY_LABELS[datetime.strptime(date, "%Y%m%d").weekday()]
+    return f"{date} ({weekday})"
 
 
 def _build_confirmation(site: CgvTheater, movie: str, date: str, grades: list[str]) -> str:
@@ -27,20 +36,34 @@ def _build_confirmation(site: CgvTheater, movie: str, date: str, grades: list[st
     return f"**{target.site_name}** ({target.id}) - {describe_target(target)} [{verb}]"
 
 
-async def _send_new_target(interaction, site, movie, date, grades):
+def _build_confirmations(site: CgvTheater, movies: list[str], date: str, grades: list[str]) -> str:
+    """영화를 여러 개 고르면 movie마다 별도 target이 생긴다 — TargetSpec.movie가
+    문자열 하나짜리 필터라 "영화 A 또는 B" 하나짜리 target은 애초에 표현이
+    안 되고, 원래도 영화 하나당 target 하나였다."""
+    return "\n".join(_build_confirmation(site, movie, date, grades) for movie in movies)
+
+
+async def _send_new_targets(interaction, site, movies, date, grades):
     """/add 커맨드 자체에 대한 응답 — followup으로 새 메시지를 보낸다."""
-    await interaction.followup.send(_build_confirmation(site, movie, date, grades))
+    await interaction.followup.send(_build_confirmations(site, movies, date, grades))
 
 
-async def _edit_to_target(interaction, site, movie, date, grades):
+async def _edit_to_targets(interaction, site, movies, date, grades):
     """Select 컴포넌트에 대한 응답 — 고르던 메시지를 결과로 바꿔치기한다."""
     await interaction.response.edit_message(
-        content=_build_confirmation(site, movie, date, grades), view=None
+        content=_build_confirmations(site, movies, date, grades), view=None
     )
 
 
+def _prompt(site: CgvTheater, text: str) -> str:
+    return f"**{site.site_name}** ({site.site_no}) - {text}"
+
+
 class GradeSelect(discord.ui.Select):
-    def __init__(self, site, movie, date, grades):
+    def __init__(self, site, movies, date, grades):
+        self.site = site
+        self.movies = movies
+        self.date = date
         options = [discord.SelectOption(label=grade, value=grade) for grade in grades]
         super().__init__(
             placeholder="감시할 등급 선택 (복수 선택 가능, 안 고르면 등급 무관)",
@@ -48,18 +71,34 @@ class GradeSelect(discord.ui.Select):
             max_values=len(options),
             options=options,
         )
-        self.site = site
-        self.movie = movie
-        self.date = date
 
     async def callback(self, interaction: discord.Interaction):
-        await _edit_to_target(interaction, self.site, self.movie, self.date, self.values)
+        await _edit_to_targets(interaction, self.site, self.movies, self.date, self.values)
+
+
+class BackToMovieButton(discord.ui.Button):
+    """MovieSelect에서 넘어온 GradeSelectView에만 붙는다 — movie를 명령어
+    파라미터로 직접 입력한 경우엔 "다시 고를 영화 목록"이 없어서 못 붙인다."""
+
+    def __init__(self, site, date, entries):
+        super().__init__(label="◀ 영화 다시 선택", style=discord.ButtonStyle.secondary, row=1)
+        self.site = site
+        self.date = date
+        self.entries = entries
+
+    async def callback(self, interaction: discord.Interaction):
+        view = MovieSelectView(site=self.site, date=self.date, entries=self.entries)
+        await interaction.response.edit_message(
+            content=_prompt(self.site, "감시할 영화를 선택하세요:"), view=view
+        )
 
 
 class GradeSelectView(discord.ui.View):
-    def __init__(self, site, movie, date, grades):
+    def __init__(self, site, movies, date, grades, entries=None):
         super().__init__(timeout=120)
-        self.add_item(GradeSelect(site, movie, date, grades))
+        self.add_item(GradeSelect(site, movies, date, grades))
+        if entries is not None:
+            self.add_item(BackToMovieButton(site, date, entries))
 
 
 class MovieSelect(discord.ui.Select):
@@ -71,22 +110,30 @@ class MovieSelect(discord.ui.Select):
         options = [discord.SelectOption(label="전체 영화", value=ALL_MOVIES)]
         options += [discord.SelectOption(label=movie, value=movie) for movie in movies]
         super().__init__(
-            placeholder="감시할 영화 선택", min_values=1, max_values=1, options=options
+            placeholder="감시할 영화 선택 (복수 선택 가능)",
+            min_values=1,
+            max_values=len(options),
+            options=options,
         )
 
     async def callback(self, interaction: discord.Interaction):
-        movie = "" if self.values[0] == ALL_MOVIES else self.values[0]
-        relevant = self.entries if not movie else [e for e in self.entries if e.movie == movie]
+        # "전체 영화"를 다른 영화와 같이 고르면 의미가 안 맞으니(전체인데 특정
+        # 영화만?) 전체가 껴있으면 그걸로 확정 — 나머지 선택은 무시한다.
+        movies = [""] if ALL_MOVIES in self.values else list(self.values)
+        relevant = (
+            self.entries if movies == [""] else [e for e in self.entries if e.movie in movies]
+        )
         grades = distinct_grades(relevant)
 
         if not grades:
-            await _edit_to_target(interaction, self.site, movie, self.date, [])
+            await _edit_to_targets(interaction, self.site, movies, self.date, [])
             return
 
-        view = GradeSelectView(site=self.site, movie=movie, date=self.date, grades=grades)
+        view = GradeSelectView(
+            site=self.site, movies=movies, date=self.date, grades=grades, entries=self.entries
+        )
         await interaction.response.edit_message(
-            content=f"**{self.site.site_name}** ({self.site.site_no}) - 감시할 등급을 선택하세요:",
-            view=view,
+            content=_prompt(self.site, "감시할 등급을 선택하세요:"), view=view
         )
 
 
@@ -118,9 +165,26 @@ async def grade_autocomplete(interaction: discord.Interaction, current: str):
     return [app_commands.Choice(name=name, value=name) for name in matches[:25]]
 
 
+async def date_autocomplete(interaction: discord.Interaction, current: str):
+    """theater/movie/grade와 달리 current가 비어 있어도 목록을 보여준다 —
+    날짜는 몇 개 안 되니 처음부터 골라 쓰라고 만든 필드라, 뭔가 치라고
+    요구하면 오히려 귀찮아진다."""
+    theater = getattr(interaction.namespace, "theater", "")
+    matches = search_dates(current, site_name=theater)
+    return [app_commands.Choice(name=_with_weekday(d), value=d) for d in matches[:25]]
+
+
+def _normalize_date(date: str) -> str:
+    """YYMMDD(6자리)로 입력하면 "20"을 붙여 YYYYMMDD로 확장한다 — 매번 "20"
+    치는 게 귀찮아서. 2100년대엔 이 앱이 안 살아있을 테니 century는 하드코딩."""
+    if len(date) == 6 and date.isdigit():
+        return f"20{date}"
+    return date
+
+
 def _invalid_date_message(date: str) -> str | None:
     if date and not (len(date) == 8 and date.isdigit()):
-        return "date는 YYYYMMDD 형식(8자리 숫자)으로 입력해주세요."
+        return "date는 YYYYMMDD(8자리) 또는 YYMMDD(6자리)로 입력해주세요."
     return None
 
 
@@ -147,10 +211,13 @@ async def _resolve_single_theater(theater_query: str) -> tuple[CgvTheater | None
     theater="추가할 극장 이름 (자동완성에서 선택 권장)",
     movie="감시할 영화 (비우면 상영 회차 목록에서 고름, 자동완성에서 선택 권장)",
     grade="감시할 등급/포맷 - 아이맥스, 4DX 등 (비우면 등급 선택 목록을 보여줌)",
-    date="감시할 날짜 YYYYMMDD (비우면 가장 가까운 상영일 기준으로 영화/등급 목록을 보여줌)",
+    date="감시할 날짜 YYYYMMDD 또는 YYMMDD (자동완성에서 선택 권장, 비우면 가장 가까운 상영일 기준으로 영화/등급 목록을 보여줌)",
 )
 @app_commands.autocomplete(
-    theater=theater_autocomplete, movie=movie_autocomplete, grade=grade_autocomplete
+    theater=theater_autocomplete,
+    movie=movie_autocomplete,
+    grade=grade_autocomplete,
+    date=date_autocomplete,
 )
 async def add_cmd(
     interaction: discord.Interaction,
@@ -159,6 +226,7 @@ async def add_cmd(
     grade: str = "",
     date: str = "",
 ):
+    date = _normalize_date(date)
     invalid_date = _invalid_date_message(date)
     if invalid_date:
         await interaction.response.send_message(invalid_date, ephemeral=True)
@@ -190,7 +258,7 @@ async def add_cmd(
             return
 
     if not entries:
-        await _send_new_target(interaction, site, movie, date, [])
+        await _send_new_targets(interaction, site, [movie], date, [])
         return
 
     if movie:
@@ -203,21 +271,17 @@ async def add_cmd(
                     f"'{movie}'({grade})에 해당하는 상영 회차를 찾지 못했습니다."
                 )
                 return
-            await _send_new_target(interaction, site, movie, date, [grade])
+            await _send_new_targets(interaction, site, [movie], date, [grade])
             return
 
         grades = distinct_grades(relevant)
         if not grades:
-            await _send_new_target(interaction, site, movie, date, [])
+            await _send_new_targets(interaction, site, [movie], date, [])
             return
 
-        view = GradeSelectView(site=site, movie=movie, date=date, grades=grades)
-        await interaction.followup.send(
-            f"**{site.site_name}** ({site.site_no}) - 감시할 등급을 선택하세요:", view=view
-        )
+        view = GradeSelectView(site=site, movies=[movie], date=date, grades=grades)
+        await interaction.followup.send(_prompt(site, "감시할 등급을 선택하세요:"), view=view)
         return
 
     view = MovieSelectView(site=site, date=date, entries=entries)
-    await interaction.followup.send(
-        f"**{site.site_name}** ({site.site_no}) - 감시할 영화를 선택하세요:", view=view
-    )
+    await interaction.followup.send(_prompt(site, "감시할 영화를 선택하세요:"), view=view)
