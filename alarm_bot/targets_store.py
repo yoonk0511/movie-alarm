@@ -4,6 +4,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from monitoring.utils import atomic_write_json
+
 from .config import DEFAULT_TARGETS, TARGETS_FILE
 
 
@@ -57,8 +59,7 @@ def load_targets() -> list[TargetSpec]:
 
 
 def save_targets(targets: list[TargetSpec]) -> None:
-    with open(TARGETS_FILE, "w", encoding="utf-8") as f:
-        json.dump([t.to_dict() for t in targets], f, ensure_ascii=False, indent=2)
+    atomic_write_json(TARGETS_FILE, [t.to_dict() for t in targets])
 
 
 def add_target(

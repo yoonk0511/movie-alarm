@@ -1,6 +1,6 @@
 [Unit]
 Description=cgv-matcher (스냅샷을 target 조건과 비교해서 Discord 알림)
-After=network-online.target
+After=network-online.target cgv-fetcher.service
 Wants=network-online.target
 
 [Service]

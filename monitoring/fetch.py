@@ -48,6 +48,7 @@ async def fetch_all_showtimes(
     안 깨진다."""
     all_entries: list[CgvShowtime] = []
     live_site_names = target_site_names()
+    failed_site_count = 0
 
     for site_name in list(theater_clients):
         if site_name not in live_site_names:
@@ -61,6 +62,7 @@ async def fetch_all_showtimes(
             scheduled_dates = await theater.fetch_scheduled_dates()
         except Exception as error:
             log_exception(f"{site_name} fetch_scheduled_dates failed, skipping: {error}")
+            failed_site_count += 1
             continue
 
         for scn_ymd in scheduled_dates:
@@ -73,6 +75,15 @@ async def fetch_all_showtimes(
             all_entries.extend(showtimes)
 
             await asyncio.sleep(0.3)
+
+    if live_site_names and failed_site_count == len(live_site_names):
+        # 감시 중인 극장이 있는데 전부 fetch_scheduled_dates부터 실패했다 —
+        # WAF 차단이나 세션 죽음 같은 전체 장애일 가능성이 높다. 여기서 빈
+        # 리스트를 그대로 반환하면 호출부가 그걸 "0개 상영" 정상 결과로 믿고
+        # 마지막으로 성공한 스냅샷을 빈 파일로 덮어써서, match.py가 모든
+        # target의 previous_signatures를 지워버린다. 예외를 던져서 호출부의
+        # 브라우저 복구 로직을 타게 하고 스냅샷 저장은 건너뛴다.
+        raise RuntimeError(f"all {len(live_site_names)} theaters failed to fetch")
 
     return all_entries
 

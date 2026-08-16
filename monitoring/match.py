@@ -1,3 +1,4 @@
+import os
 import time
 
 from alarm_bot.config import DISCORD_WEBHOOK_URL
@@ -66,17 +67,27 @@ def run() -> None:
     log_info("cgv-matcher started")
 
     while True:
-        entries = load_showtimes(SHOWTIMES_FILE)
+        try:
+            if not os.path.exists(SHOWTIMES_FILE):
+                # fetch.py가 아직 한 번도 스냅샷을 안 썼다 — 여기서 빈 스냅샷으로
+                # baseline을 잡으면(첫 실행이든 재시작 중이든) 나중에 진짜
+                # 스냅샷이 들어왔을 때 이미 열려있던 회차가 전부 "새 회차"로
+                # 보여서 알림이 중복 발사된다. fetch가 쓸 때까지 그냥 기다린다.
+                log_info("showtimes snapshot not ready yet, waiting for cgv-fetcher")
+            else:
+                entries = load_showtimes(SHOWTIMES_FILE)
 
-        check_all_targets(
-            registry=registry,
-            targets=load_targets(),
-            entries=entries,
-            first_run=first_run,
-        )
+                check_all_targets(
+                    registry=registry,
+                    targets=load_targets(),
+                    entries=entries,
+                    first_run=first_run,
+                )
 
-        save_state(state_file=STATE_FILE, state=registry.signatures_snapshot())
-        first_run = False
+                save_state(state_file=STATE_FILE, state=registry.signatures_snapshot())
+                first_run = False
+        except Exception as error:
+            log_exception(f"match poll failed, will retry: {error}")
 
         time.sleep(POLL_INTERVAL_SEC)
 

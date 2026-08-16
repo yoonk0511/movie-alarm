@@ -1,6 +1,8 @@
 import asyncio
 from unittest.mock import MagicMock
 
+import pytest
+
 from alarm_bot.targets_store import TargetSpec
 
 import monitoring.fetch as fetch_module
@@ -17,6 +19,14 @@ class FakeTheaterClient:
 
     async def fetch_scheduled_dates(self):
         return []
+
+
+class FailingTheaterClient:
+    def __init__(self, page, site_name):
+        self.site_name = site_name
+
+    async def fetch_scheduled_dates(self):
+        raise RuntimeError("boom")
 
 
 def make_spec(**overrides):
@@ -67,3 +77,33 @@ def test_fetch_all_showtimes_drops_clients_for_targets_no_longer_watched(monkeyp
     run(fetch_all_showtimes(page, theater_clients))
 
     assert theater_clients == {}
+
+
+def test_fetch_all_showtimes_raises_when_every_theater_fails(monkeypatch):
+    monkeypatch.setattr(fetch_module, "target_site_names", lambda: ["용산아이파크몰", "강남"])
+    monkeypatch.setattr(fetch_module, "CgvTheaterClient", FailingTheaterClient)
+
+    with pytest.raises(RuntimeError):
+        run(fetch_all_showtimes(MagicMock(), {}))
+
+
+def test_fetch_all_showtimes_does_not_raise_when_some_theaters_succeed(monkeypatch):
+    site_names = ["용산아이파크몰", "강남"]
+    monkeypatch.setattr(fetch_module, "target_site_names", lambda: site_names)
+
+    def make_client(page, site_name):
+        return FailingTheaterClient(page, site_name) if site_name == "강남" else FakeTheaterClient(
+            page, site_name
+        )
+
+    monkeypatch.setattr(fetch_module, "CgvTheaterClient", make_client)
+
+    result = run(fetch_all_showtimes(MagicMock(), {}))
+
+    assert result == []
+
+
+def test_fetch_all_showtimes_does_not_raise_when_no_targets_watched(monkeypatch):
+    monkeypatch.setattr(fetch_module, "target_site_names", lambda: [])
+
+    assert run(fetch_all_showtimes(MagicMock(), {})) == []

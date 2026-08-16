@@ -21,7 +21,7 @@ def _read_json(file: str, default: Any) -> Any:
         return default
 
 
-def _atomic_write_json(file: str, data: Any) -> None:
+def atomic_write_json(file: str, data: Any) -> None:
     temporary_file = f"{file}.tmp"
 
     try:
@@ -52,7 +52,7 @@ def load_state(state_file: str) -> dict[str, set[str]]:
 
 def save_state(state_file: str, state: dict[str, set[str]]) -> None:
     serialized_state = {site_no: sorted(signatures) for site_no, signatures in state.items()}
-    _atomic_write_json(state_file, serialized_state)
+    atomic_write_json(state_file, serialized_state)
 
 
 def build_signature(entry: CgvShowtime) -> str:
@@ -82,7 +82,7 @@ def save_showtimes(
     entries: list[CgvShowtime],
     fetched_at: str,
 ) -> None:
-    _atomic_write_json(
+    atomic_write_json(
         showtimes_file,
         {"fetched_at": fetched_at, "entries": [asdict(entry) for entry in entries]},
     )
@@ -100,7 +100,7 @@ def load_json_list(file: str, cls: type[T]) -> list[T]:
 
 
 def save_json_list(file: str, items: list[T]) -> None:
-    _atomic_write_json(file, [asdict(item) for item in items])
+    atomic_write_json(file, [asdict(item) for item in items])
 
 
 def format_time(hhmm: str) -> str:

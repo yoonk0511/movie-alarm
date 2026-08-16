@@ -64,7 +64,7 @@ class GradeSelect(discord.ui.Select):
         self.site = site
         self.movies = movies
         self.date = date
-        options = [discord.SelectOption(label=grade, value=grade) for grade in grades]
+        options = [discord.SelectOption(label=grade, value=grade) for grade in grades[:25]]
         super().__init__(
             placeholder="감시할 등급 선택 (복수 선택 가능, 안 고르면 등급 무관)",
             min_values=0,
